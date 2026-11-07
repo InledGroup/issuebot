@@ -1,0 +1,30 @@
+name = "issuebot"
+main = "src/index.ts"
+compatibility_date = "2024-04-05"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+PULSAR_PROJECT_ID = "PVT_kwDOEGtWb84Bbe-_"
+PULSAR_BOARD_URL = "https://github.com/orgs/Inled-Pulsar-OS/projects/1/views/2"
+PULSAR_TIPO_FIELD_ID = "PVTSSF_lADOEGtWb84Bbe-_zhWPMX0"
+PULSAR_TIPO_ERROR_ID = "0fad1b2f"
+PULSAR_TIPO_IDEA_ID = "cdb185ea"
+
+INLED_PROJECT_ID = "PVT_kwDODfyzbM4BY-xQ"
+INLED_BOARD_URL = "https://github.com/orgs/InledGroup/projects/1/views/1"
+
+# Required Secrets (set via 'wrangler secret put <NAME>'):
+# - DISCORD_BOT_TOKEN
+# - GITHUB_TOKEN
+
+[[durable_objects.bindings]]
+name = "DISCORD_GATEWAY"
+class_name = "DiscordGateway"
+
+[[durable_objects.bindings]]
+name = "LOG_STORE"
+class_name = "LogStore"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["DiscordGateway", "LogStore"]
