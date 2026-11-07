@@ -423,9 +423,18 @@ document.getElementById('btn-reconnect').onclick = async () => {
 refreshStatus();
 loadLogs();
 setInterval(() => {
-  refreshStatus();
-  loadLogs();
-}, 3000);
+  if (document.visibilityState === 'visible') {
+    refreshStatus();
+    loadLogs();
+  }
+}, 30000);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    refreshStatus();
+    loadLogs();
+  }
+});
 </script>
 </body>
 </html>
