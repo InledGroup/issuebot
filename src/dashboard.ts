@@ -5,11 +5,11 @@ export function serveDashboardHtml(): Response {
 }
 
 const DASHBOARD_HTML = `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>IssueBot - Panel de Logs</title>
+<title>IssueBot - Activity Dashboard</title>
 <style>
   :root {
     --bg-page: #f8fafc;
@@ -253,29 +253,29 @@ const DASHBOARD_HTML = `<!doctype html>
         <img src="https://hosted.inled.es/cdn/inled-logo-full.png" alt="INLED" />
         <span class="badge">IssueBot v1.0</span>
       </div>
-      <p class="sub">Discord Bot para sincronización de Project Boards de GitHub</p>
+      <p class="sub">Discord Bot for GitHub Project Boards synchronization</p>
     </div>
     <div class="header-actions">
-      <button id="btn-reconnect" class="secondary">🔄 Reconectar Gateway</button>
-      <button id="btn-clear" class="danger">Limpiar Logs</button>
+      <button id="btn-reconnect" class="secondary">🔄 Reconnect Gateway</button>
+      <button id="btn-clear" class="danger">Clear Logs</button>
     </div>
   </header>
 
   <div class="grid">
     <div class="card" id="gateway-card">
-      <h2>Gateway de Discord</h2>
-      <div class="pill"><span class="dot-status red" id="gw-dot"></span><span id="gw-text">desconectado</span></div>
+      <h2>Discord Gateway</h2>
+      <div class="pill"><span class="dot-status red" id="gw-dot"></span><span id="gw-text">disconnected</span></div>
       <div class="time" id="gateway-last">—</div>
     </div>
     <div class="card">
-      <h2>Usuario del Bot</h2>
+      <h2>Bot Identity</h2>
       <div class="value" id="bot-username">—</div>
       <div class="time" id="bot-id">ID: —</div>
     </div>
     <div class="card">
-      <h2>Total de Eventos</h2>
+      <h2>Total Events</h2>
       <div class="value" id="logs-count">0</div>
-      <div class="time">registros en memoria</div>
+      <div class="time">records in memory</div>
     </div>
   </div>
 
@@ -291,9 +291,9 @@ const DASHBOARD_HTML = `<!doctype html>
 
   <div class="section">
     <div class="section-header">
-      <h2>Registro de Actividad</h2>
+      <h2>Activity Log</h2>
       <div class="filter-bar">
-        <button class="filter-btn active" data-filter="all">Todos</button>
+        <button class="filter-btn active" data-filter="all">All</button>
         <button class="filter-btn" data-filter="Inled-Pulsar-OS">Pulsar</button>
         <button class="filter-btn" data-filter="InledGroup">Inled</button>
       </div>
@@ -302,20 +302,20 @@ const DASHBOARD_HTML = `<!doctype html>
     <table>
       <thead>
         <tr>
-          <th>Hora</th>
-          <th>Nivel</th>
-          <th>Evento</th>
+          <th>Time</th>
+          <th>Level</th>
+          <th>Event</th>
           <th>Org</th>
-          <th>Usuario</th>
-          <th>Mensaje / Detalles</th>
+          <th>User</th>
+          <th>Message / Details</th>
         </tr>
       </thead>
       <tbody id="logs-tbody">
-        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Cargando registros...</td></tr>
+        <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading logs...</td></tr>
       </tbody>
     </table>
 
-    <div id="status-line">Actualizando en tiempo real cada 3 segundos...</div>
+    <div id="status-line">Updating in real-time every 3 seconds...</div>
   </div>
 </main>
 
@@ -350,11 +350,11 @@ async function refreshStatus() {
     const gwDot = document.getElementById('gw-dot');
     const gwText = document.getElementById('gw-text');
     gwDot.className = 'dot-status ' + (g.connected ? 'green' : 'red');
-    gwText.textContent = g.connected ? 'conectado' : 'desconectado';
+    gwText.textContent = g.connected ? 'connected' : 'disconnected';
 
     document.getElementById('gateway-last').textContent =
-      g.lastDispatch ? 'Último evento: ' + fmtTime(g.lastDispatch) : 'Sin eventos recientes';
-    document.getElementById('bot-username').textContent = g.botUsername ? '@' + g.botUsername : 'Sin conectar';
+      g.lastDispatch ? 'Last dispatch: ' + fmtTime(g.lastDispatch) : 'No recent events';
+    document.getElementById('bot-username').textContent = g.botUsername ? '@' + g.botUsername : 'Not connected';
     document.getElementById('bot-id').textContent = g.botUserId ? 'ID: ' + g.botUserId : 'ID: —';
   } catch (err) {
     console.error('Error status:', err);
@@ -380,7 +380,7 @@ function renderLogs() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No hay eventos registrados todavía. Invoca al bot en Discord.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No events recorded yet. Invoke the bot on Discord.</td></tr>';
     return;
   }
 
@@ -410,13 +410,13 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 
 document.getElementById('btn-clear').onclick = async () => {
   await fetch('/api/logs', { method: 'DELETE' });
-  showToast('Logs limpiados.');
+  showToast('Logs cleared.');
   loadLogs();
 };
 
 document.getElementById('btn-reconnect').onclick = async () => {
   await fetch('/api/connect', { method: 'POST' });
-  showToast('Reconectando Gateway...');
+  showToast('Reconnecting Gateway...');
   setTimeout(refreshStatus, 2500);
 };
 

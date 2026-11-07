@@ -1,6 +1,7 @@
 import { serveDashboardHtml } from "./dashboard";
 import {
   buildControlActionRows,
+  editOriginalInteractionResponse,
   getCloseModal,
   getCommentModal,
   getCreateIssueModal,
@@ -27,12 +28,12 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Panel de logs público (sin contraseña)
+    // Public activity log dashboard
     if (path === "/" || path === "/logs" || path === "/index.html") {
       return serveDashboardHtml();
     }
 
-    // API de Logs
+    // Logs API
     if (path === "/api/logs") {
       const store = env.LOG_STORE.get(env.LOG_STORE.idFromName("global"));
       if (request.method === "GET") {
@@ -43,17 +44,17 @@ export default {
       }
     }
 
-    // API de Estado
+    // Status API
     if (path === "/api/status") {
       return await handleStatus(env);
     }
 
-    // API de Reconexión Gateway
+    // Gateway Reconnect API
     if (path === "/api/connect" && request.method === "POST") {
       return await handleConnect(env, url);
     }
 
-    // Eventos internos del Gateway
+    // Internal Gateway Events
     if (path === "/discord/events") {
       return await handleDiscordEvents(request, env, ctx);
     }
@@ -90,26 +91,26 @@ async function handleDiscordEvents(
 
 function getHelpMessage(): string {
   return (
-    `🤖 **IssueBot — Asistente de Proyectos y Gestión de Issues**\n\n` +
-    `**✨ Interfaz Interactiva:**\n` +
-    `Usa los botones de abajo para filtrar temas o abrir los formularios modales:\n` +
-    `• **➕ Nueva Issue**: Abre el formulario para registrar un bug o sugerencia.\n` +
-    `• **💬 Comentar**: Añade un comentario o avance a una issue abierta.\n` +
-    `• **🔒 Cerrar Issue**: Marca como resuelta una issue en GitHub.\n` +
-    `• **🚀 Pulsar OS / 🏢 InledGroup**: Filtra las tareas de cada organización.\n\n` +
-    `**⚡ Comandos Rápidos por Texto:**\n` +
-    `• \`!issue help\` o \`@IssueBot help\` ➔ Abre este panel interactivo.\n` +
-    `• \`@IssueBot view pulsar\` ➔ Muestra todas las issues de Pulsar OS.\n` +
-    `• \`@IssueBot view pulsar errors\` ➔ Solo errores de Pulsar.\n` +
-    `• \`@IssueBot view pulsar ideas\` ➔ Solo ideas/sugerencias de Pulsar.\n` +
-    `• \`@IssueBot view inled\` ➔ Muestra las issues de InledGroup.\n` +
-    `• \`@IssueBot pulsar error <descripción>\` ➔ Crea un error en Pulsar.\n` +
-    `• \`@IssueBot pulsar idea <descripción>\` ➔ Añade una sugerencia a Pulsar.\n` +
-    `• \`@IssueBot inled error <descripción>\` ➔ Crea un error en InledGroup.\n` +
-    `• \`@IssueBot comment #223 <mensaje>\` ➔ Comenta directamente en la issue #223.\n` +
-    `• \`@IssueBot close #223 [motivo opcional]\` ➔ Cierra la issue #223 en GitHub.\n\n` +
-    `🔗 **Pulsar OS Board:** <https://github.com/orgs/Inled-Pulsar-OS/projects/1/views/2>\n` +
-    `🔗 **InledGroup Board:** <https://github.com/orgs/InledGroup/projects/1/views/1>`
+    `🤖 **IssueBot — GitHub Project Board Assistant**\n\n` +
+    `**✨ Interactive Dashboard:**\n` +
+    `Click any button below to filter issues or open modal dialogs:\n` +
+    `• **➕ New Issue**: Opens a popup form to submit a bug report or suggestion.\n` +
+    `• **💬 Comment**: Add a progress update or comment to any issue.\n` +
+    `• **🔒 Close Issue**: Mark an issue as closed and resolved on GitHub.\n` +
+    `• **🚀 Pulsar (All) / 🏢 InledGroup**: Filter issues by organization.\n\n` +
+    `**⚡ Quick Text Commands:**\n` +
+    `• \`!issue help\` or \`@IssueBot help\` ➔ Display this guide and interactive controls.\n` +
+    `• \`@IssueBot view pulsar\` ➔ Show all open issues on Pulsar OS Project Board.\n` +
+    `• \`@IssueBot view pulsar errors\` ➔ Show open errors only.\n` +
+    `• \`@IssueBot view pulsar ideas\` ➔ Show ideas and feature proposals.\n` +
+    `• \`@IssueBot view inled\` ➔ Show open issues on InledGroup Board.\n` +
+    `• \`@IssueBot pulsar error <description>\` ➔ Create an error on Pulsar OS Board.\n` +
+    `• \`@IssueBot pulsar idea <description>\` ➔ Submit a proposal to Pulsar OS Board.\n` +
+    `• \`@IssueBot inled error <description>\` ➔ Create an error on InledGroup Board.\n` +
+    `• \`@IssueBot comment #223 <message>\` ➔ Post a comment directly on issue #223.\n` +
+    `• \`@IssueBot close #223 [optional reason]\` ➔ Close issue #223 on GitHub.\n\n` +
+    `🔗 **Pulsar OS Project Board:** <https://github.com/orgs/Inled-Pulsar-OS/projects/1/views/2>\n` +
+    `🔗 **InledGroup Project Board:** <https://github.com/orgs/InledGroup/projects/1/views/1>`
   );
 }
 
@@ -135,25 +136,26 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
   const authorName = user?.global_name || user?.username || "DiscordUser";
   const customId = interaction.data?.custom_id || "";
 
-  // 1. CLICK EN BOTÓN (Component Type 2)
+  // 1. BUTTON CLICKS (Component Type 3)
   if (interaction.type === 3) {
+    // Open Modals: must respond immediately with type: 9 (MODAL) within 3 seconds
     if (customId === "action:open_create_modal") {
-      await respondInteraction(env, interaction.id, interaction.token, getCreateIssueModal());
+      await respondInteraction(interaction.id, interaction.token, getCreateIssueModal());
       return;
     }
 
     if (customId === "action:open_comment_modal") {
-      await respondInteraction(env, interaction.id, interaction.token, getCommentModal());
+      await respondInteraction(interaction.id, interaction.token, getCommentModal());
       return;
     }
 
     if (customId === "action:open_close_modal") {
-      await respondInteraction(env, interaction.id, interaction.token, getCloseModal());
+      await respondInteraction(interaction.id, interaction.token, getCloseModal());
       return;
     }
 
     if (customId === "action:show_help") {
-      await respondInteraction(env, interaction.id, interaction.token, {
+      await respondInteraction(interaction.id, interaction.token, {
         type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
         data: {
           content: getHelpMessage(),
@@ -163,8 +165,13 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
       return;
     }
 
-    // Botones de filtro: filter:pulsar:all, filter:pulsar:Error, filter:inled:all, etc.
+    // Filter Buttons: Defer update immediately (type: 6) so Discord doesn't time out, then edit message
     if (customId.startsWith("filter:")) {
+      // Step 1: Acknowledge interaction immediately (< 50ms)
+      await respondInteraction(interaction.id, interaction.token, {
+        type: 6, // DEFERRED_UPDATE_MESSAGE
+      });
+
       const parts = customId.split(":");
       const org = (parts[1] === "inled" ? "inled" : "pulsar") as "pulsar" | "inled";
       const filterType = parts[2] === "all" ? undefined : parts[2];
@@ -181,33 +188,34 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
 
         const replyContent =
           lines.length === 0
-            ? `ℹ️ No open issues found on **${orgName}**${filterHeader}.\n\n👉 **Tablero completo:** <${boardUrl}>`
-            : `📋 **${orgName} — Issues abiertas${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Tablero completo:** <${boardUrl}>`;
+            ? `ℹ️ No open issues found on **${orgName}**${filterHeader}.\n\n👉 **Full Project Board:** <${boardUrl}>`
+            : `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
 
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content: replyContent,
-            components: buildControlActionRows(),
-          },
+        // Step 2: Update original message with the fetched issues and buttons
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: replyContent,
+          components: buildControlActionRows(),
         });
       } catch (err) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content: `❌ Error al consultar issues: ${sanitizeOutput(String(err))}`,
-          },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: `❌ Error querying issues: ${sanitizeOutput(String(err))}`,
+          components: buildControlActionRows(),
         });
       }
       return;
     }
   }
 
-  // 2. ENVÍO DE FORMULARIO MODAL (Type 5)
+  // 2. MODAL FORM SUBMISSIONS (Type 5)
   if (interaction.type === 5) {
     const components = interaction.data?.components;
 
-    // Modal Crear Issue
+    // Acknowledge modal submission immediately with deferred source (type: 5)
+    await respondInteraction(interaction.id, interaction.token, {
+      type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    });
+
+    // Create Issue Modal
     if (customId === "modal_submit_create") {
       const orgInput = getModalValue(components, "org").toLowerCase();
       const org: "pulsar" | "inled" = orgInput.includes("inled") ? "inled" : "pulsar";
@@ -221,19 +229,16 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
         const res = await createProjectDraftIssue(env, org, title, body, type);
         const typeEmoji = type === "Error" ? "🐛" : "💡";
         const replyText =
-          `✅ **Issue creada con éxito mediante formulario interactivo!**\n\n` +
-          `• **Organización:** ${res.orgName}\n` +
-          `• **Tipo:** ${typeEmoji} **${type}**\n` +
-          `• **Título:** ${title}\n` +
-          `• **Creado por:** <@${user?.id}>\n\n` +
-          `👉 **Ver en Project Board:** <${res.boardUrl}>`;
+          `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
+          `• **Organization:** ${res.orgName}\n` +
+          `• **Type:** ${typeEmoji} **${type}**\n` +
+          `• **Title:** ${title}\n` +
+          `• **Reported by:** <@${user?.id}>\n\n` +
+          `👉 **View on Project Board:** <${res.boardUrl}>`;
 
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content: replyText,
-            components: buildControlActionRows(),
-          },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: replyText,
+          components: buildControlActionRows(),
         });
 
         await logEvent(env, {
@@ -244,26 +249,23 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
           message: `Created ${type} via Modal: "${title}"`,
         });
       } catch (err) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content: `❌ Error al crear issue: ${sanitizeOutput(String(err))}`,
-          },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: `❌ Error creating issue: ${sanitizeOutput(String(err))}`,
+          components: buildControlActionRows(),
         });
       }
       return;
     }
 
-    // Modal Comentar
+    // Comment Modal
     if (customId === "modal_submit_comment") {
       const numRaw = getModalValue(components, "number").replace(/#/g, "");
       const issueNum = parseInt(numRaw, 10);
       const commentText = getModalValue(components, "comment");
 
       if (isNaN(issueNum) || !commentText) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: { content: "⚠️ Por favor indica un número de issue válido y un comentario." },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: "⚠️ Please provide a valid issue number and comment.",
         });
         return;
       }
@@ -279,15 +281,12 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
           authorName
         );
 
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content:
-              `💬 **Comentario añadido con éxito en #${resolved.number}!**\n\n` +
-              `> ${commentText.slice(0, 200)}\n\n` +
-              `🔗 <${commentUrl}>`,
-            components: buildControlActionRows(),
-          },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content:
+            `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
+            `> ${commentText.slice(0, 200)}\n\n` +
+            `🔗 <${commentUrl}>`,
+          components: buildControlActionRows(),
         });
 
         await logEvent(env, {
@@ -298,24 +297,23 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
           message: `Commented on #${resolved.number}: "${commentText.slice(0, 60)}"`,
         });
       } catch (err) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: { content: `❌ Error al comentar en la issue: ${sanitizeOutput(String(err))}` },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: `❌ Error adding comment: ${sanitizeOutput(String(err))}`,
+          components: buildControlActionRows(),
         });
       }
       return;
     }
 
-    // Modal Cerrar
+    // Close Modal
     if (customId === "modal_submit_close") {
       const numRaw = getModalValue(components, "number").replace(/#/g, "");
       const issueNum = parseInt(numRaw, 10);
       const reason = getModalValue(components, "reason");
 
       if (isNaN(issueNum)) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: { content: "⚠️ Por favor indica un número de issue válido." },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: "⚠️ Please provide a valid issue number.",
         });
         return;
       }
@@ -331,17 +329,14 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
           authorName
         );
 
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: {
-            content:
-              `🔒 **Issue #${resolved.number} cerrada con éxito en GitHub!**\n\n` +
-              `• **Título:** ${title}\n` +
-              `${reason ? `• **Motivo:** ${reason}\n` : ""}` +
-              `• **Cerrado por:** <@${user?.id}>\n\n` +
-              `🔗 <${issueUrl}>`,
-            components: buildControlActionRows(),
-          },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content:
+            `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
+            `• **Title:** ${title}\n` +
+            `${reason ? `• **Reason:** ${reason}\n` : ""}` +
+            `• **Closed by:** <@${user?.id}>\n\n` +
+            `🔗 <${issueUrl}>`,
+          components: buildControlActionRows(),
         });
 
         await logEvent(env, {
@@ -353,9 +348,9 @@ async function processInteraction(env: Env, interaction: DiscordInteraction): Pr
           details: reason,
         });
       } catch (err) {
-        await respondInteraction(env, interaction.id, interaction.token, {
-          type: 4,
-          data: { content: `❌ Error al cerrar la issue: ${sanitizeOutput(String(err))}` },
+        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+          content: `❌ Error closing issue: ${sanitizeOutput(String(err))}`,
+          components: buildControlActionRows(),
         });
       }
       return;
@@ -373,7 +368,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       const st = (await gw.fetch(new Request("https://internal/status")).then((r) => r.json())) as any;
       botUserId = st.botUserId || undefined;
     } catch {
-      // DO no listo
+      // DO not ready
     }
   }
 
@@ -382,7 +377,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
 
   const authorName = message.author.global_name || message.author.username;
 
-  // 1. COMANDO HELP
+  // 1. HELP COMMAND
   if (intent.action === "help") {
     await sendDiscordMessage(
       env,
@@ -394,7 +389,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
     return;
   }
 
-  // 2. COMANDO CLOSE / CERRAR
+  // 2. CLOSE COMMAND
   if (intent.action === "close") {
     try {
       const resolved = await findIssueByNumber(env, intent.issueNumber);
@@ -408,10 +403,10 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       );
 
       const replyContent =
-        `🔒 **Issue #${resolved.number} cerrada con éxito en GitHub!**\n\n` +
-        `• **Título:** ${title}\n` +
-        `${intent.reason ? `• **Motivo:** ${intent.reason}\n` : ""}` +
-        `• **Cerrado por:** <@${message.author.id}>\n\n` +
+        `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
+        `• **Title:** ${title}\n` +
+        `${intent.reason ? `• **Reason:** ${intent.reason}\n` : ""}` +
+        `• **Closed by:** <@${message.author.id}>\n\n` +
         `🔗 <${issueUrl}>`;
 
       await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
@@ -426,7 +421,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       });
     } catch (err) {
       const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(env, message.channel_id, `❌ Error al cerrar issue: ${safeError}`, message.id);
+      await sendDiscordMessage(env, message.channel_id, `❌ Error closing issue: ${safeError}`, message.id);
       await logEvent(env, {
         level: "ERROR",
         event: "CLOSE_FAILED",
@@ -438,7 +433,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
     return;
   }
 
-  // 3. COMANDO COMMENT / COMENTAR
+  // 3. COMMENT COMMAND
   if (intent.action === "comment") {
     try {
       const resolved = await findIssueByNumber(env, intent.issueNumber);
@@ -452,7 +447,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       );
 
       const replyContent =
-        `💬 **Comentario añadido con éxito en #${resolved.number}!**\n\n` +
+        `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
         `> ${intent.comment}\n\n` +
         `🔗 <${commentUrl}>`;
 
@@ -467,7 +462,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       });
     } catch (err) {
       const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(env, message.channel_id, `❌ Error al comentar: ${safeError}`, message.id);
+      await sendDiscordMessage(env, message.channel_id, `❌ Error adding comment: ${safeError}`, message.id);
       await logEvent(env, {
         level: "ERROR",
         event: "COMMENT_FAILED",
@@ -479,7 +474,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
     return;
   }
 
-  // 4. COMANDO VIEW
+  // 4. VIEW COMMAND
   if (intent.action === "view") {
     const orgLabel = intent.org === "pulsar" ? "Inled-Pulsar-OS" : "InledGroup";
     await logEvent(env, {
@@ -513,7 +508,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
         return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
       });
 
-      const replyContent = `📋 **${orgName} — Issues abiertas${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Tablero completo:** <${boardUrl}>`;
+      const replyContent = `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
 
       await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
 
@@ -545,7 +540,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
     return;
   }
 
-  // 5. COMANDO CREATE
+  // 5. CREATE COMMAND
   if (intent.action === "create") {
     const orgLabel = intent.org === "pulsar" ? "Inled-Pulsar-OS" : "InledGroup";
 
@@ -553,7 +548,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       await sendDiscordMessage(
         env,
         message.channel_id,
-        `⚠️ Por favor espera un momento antes de añadir más issues (máximo 3 por minuto).`,
+        `⚠️ Please wait a moment before creating more issues (maximum 3 per minute).`,
         message.id
       );
       return;
@@ -623,7 +618,7 @@ async function handleStatus(env: Env): Promise<Response> {
     const live = (await gw.fetch(new Request("https://internal/status")).then((r) => r.json())) as any;
     gateway = live;
   } catch {
-    // DO no listo
+    // DO not ready
   }
   return Response.json({ gateway });
 }

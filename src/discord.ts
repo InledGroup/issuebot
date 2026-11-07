@@ -85,8 +85,11 @@ export async function sendDiscordMessage(
   return lastRes!;
 }
 
+/**
+ * Responds to a Discord interaction callback.
+ * Note: Discord interaction callback endpoints do NOT require Authorization header.
+ */
 export async function respondInteraction(
-  env: Env,
   interactionId: string,
   interactionToken: string,
   body: Record<string, unknown>
@@ -94,7 +97,6 @@ export async function respondInteraction(
   const res = await fetch(`${DISCORD_API}/interactions/${interactionId}/${interactionToken}/callback`, {
     method: "POST",
     headers: {
-      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -102,47 +104,74 @@ export async function respondInteraction(
 
   if (!res.ok) {
     const errText = await res.text();
-    console.error(`Interaction response failed: ${res.status} ${errText}`);
+    console.error(`Interaction callback error: ${res.status} ${errText}`);
   }
 
   return res;
 }
 
 /**
- * Builds standard interactive control buttons for Discord
+ * Edits the original deferred interaction response via webhook
+ */
+export async function editOriginalInteractionResponse(
+  applicationId: string,
+  interactionToken: string,
+  body: Record<string, unknown>
+): Promise<Response> {
+  const res = await fetch(
+    `${DISCORD_API}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Edit original interaction failed: ${res.status} ${errText}`);
+  }
+
+  return res;
+}
+
+/**
+ * Builds standard interactive control buttons for Discord (all in English)
  */
 export function buildControlActionRows() {
   return [
     {
       type: 1, // ActionRow
       components: [
-        { type: 2, style: 1, label: "🚀 Pulsar (Todo)", custom_id: "filter:pulsar:all" },
-        { type: 2, style: 2, label: "🐛 Errores", custom_id: "filter:pulsar:Error" },
+        { type: 2, style: 1, label: "🚀 Pulsar (All)", custom_id: "filter:pulsar:all" },
+        { type: 2, style: 2, label: "🐛 Errors", custom_id: "filter:pulsar:Error" },
         { type: 2, style: 2, label: "💡 Ideas", custom_id: "filter:pulsar:Idea" },
-        { type: 2, style: 2, label: "🤝 Ayuda", custom_id: "filter:pulsar:Ayuda" },
+        { type: 2, style: 2, label: "🤝 Help Tasks", custom_id: "filter:pulsar:Ayuda" },
         { type: 2, style: 1, label: "🏢 InledGroup", custom_id: "filter:inled:all" },
       ],
     },
     {
       type: 1, // ActionRow
       components: [
-        { type: 2, style: 3, label: "➕ Nueva Issue", custom_id: "action:open_create_modal" },
-        { type: 2, style: 1, label: "💬 Comentar", custom_id: "action:open_comment_modal" },
-        { type: 2, style: 4, label: "🔒 Cerrar Issue", custom_id: "action:open_close_modal" },
-        { type: 2, style: 2, label: "❓ Guía y Ayuda", custom_id: "action:show_help" },
+        { type: 2, style: 3, label: "➕ New Issue", custom_id: "action:open_create_modal" },
+        { type: 2, style: 1, label: "💬 Comment", custom_id: "action:open_comment_modal" },
+        { type: 2, style: 4, label: "🔒 Close Issue", custom_id: "action:open_close_modal" },
+        { type: 2, style: 2, label: "❓ Help & Guide", custom_id: "action:show_help" },
       ],
     },
   ];
 }
 
 /**
- * Modal Dialog: Crear Nueva Issue
+ * Modal Dialog: Create New Issue (all in English)
  */
 export function getCreateIssueModal() {
   return {
     type: 9, // MODAL
     data: {
-      title: "Crear Nueva Issue en GitHub",
+      title: "Create New Issue on GitHub",
       custom_id: "modal_submit_create",
       components: [
         {
@@ -151,7 +180,7 @@ export function getCreateIssueModal() {
             {
               type: 4, // TextInput
               custom_id: "org",
-              label: "Organización (pulsar o inled)",
+              label: "Organization (pulsar or inled)",
               style: 1, // Short
               value: "pulsar",
               required: true,
@@ -164,7 +193,7 @@ export function getCreateIssueModal() {
             {
               type: 4,
               custom_id: "type",
-              label: "Tipo (error o idea)",
+              label: "Issue Type (error or idea)",
               style: 1,
               value: "error",
               required: true,
@@ -177,9 +206,9 @@ export function getCreateIssueModal() {
             {
               type: 4,
               custom_id: "title",
-              label: "Título de la issue",
+              label: "Issue Title",
               style: 1,
-              placeholder: "Ej: El instalador no monta la partición EFI",
+              placeholder: "e.g. Calamares installer fails on btrfs partition",
               required: true,
             },
           ],
@@ -190,9 +219,9 @@ export function getCreateIssueModal() {
             {
               type: 4,
               custom_id: "details",
-              label: "Descripción / Detalles",
+              label: "Description / Steps to Reproduce",
               style: 2, // Paragraph
-              placeholder: "Describe el problema o sugerencia en detalle...",
+              placeholder: "Describe the error or suggestion in detail...",
               required: false,
             },
           ],
@@ -203,13 +232,13 @@ export function getCreateIssueModal() {
 }
 
 /**
- * Modal Dialog: Comentar en una Issue
+ * Modal Dialog: Comment on an Issue (all in English)
  */
 export function getCommentModal() {
   return {
     type: 9,
     data: {
-      title: "Añadir Comentario a una Issue",
+      title: "Add Comment to GitHub Issue",
       custom_id: "modal_submit_comment",
       components: [
         {
@@ -218,9 +247,9 @@ export function getCommentModal() {
             {
               type: 4,
               custom_id: "number",
-              label: "Número de Issue (#)",
+              label: "Issue Number (#)",
               style: 1,
-              placeholder: "Ej: 223",
+              placeholder: "e.g. 223",
               required: true,
             },
           ],
@@ -231,9 +260,9 @@ export function getCommentModal() {
             {
               type: 4,
               custom_id: "comment",
-              label: "Tu comentario",
+              label: "Your Comment",
               style: 2,
-              placeholder: "Escribe aquí la respuesta, feedback o progreso...",
+              placeholder: "Write your comment, feedback, or update...",
               required: true,
             },
           ],
@@ -244,13 +273,13 @@ export function getCommentModal() {
 }
 
 /**
- * Modal Dialog: Cerrar una Issue
+ * Modal Dialog: Close an Issue (all in English)
  */
 export function getCloseModal() {
   return {
     type: 9,
     data: {
-      title: "Cerrar Issue en GitHub",
+      title: "Close GitHub Issue",
       custom_id: "modal_submit_close",
       components: [
         {
@@ -259,9 +288,9 @@ export function getCloseModal() {
             {
               type: 4,
               custom_id: "number",
-              label: "Número de Issue (#)",
+              label: "Issue Number (#)",
               style: 1,
-              placeholder: "Ej: 223",
+              placeholder: "e.g. 223",
               required: true,
             },
           ],
@@ -272,9 +301,9 @@ export function getCloseModal() {
             {
               type: 4,
               custom_id: "reason",
-              label: "Motivo del cierre (opcional)",
+              label: "Reason for Closing (optional)",
               style: 1,
-              placeholder: "Ej: Resuelto en la build Pear OS 1.0.4",
+              placeholder: "e.g. Resolved in Pear OS 1.0.4 build",
               required: false,
             },
           ],
@@ -329,16 +358,16 @@ export function parseIssueCommand(
     return null;
   }
 
-  // Limpiar menciones de Discord
+  // Strip Discord mentions
   let text = raw.replace(/<@!?[0-9]+>/g, "").replace(/^!issue\s*/i, "").trim();
   const lower = text.toLowerCase();
 
-  // 1. Comando HELP / GUIA
-  if (!text || lower === "help" || lower === "ayuda" || lower.includes("guia") || lower.includes("tutorial")) {
+  // 1. HELP command
+  if (!text || lower === "help" || lower === "ayuda" || lower.includes("guide") || lower.includes("tutorial")) {
     return { action: "help" };
   }
 
-  // 2. Comando CLOSE / CERRAR (ej: close 223 o cerrar #223 resuelto)
+  // 2. CLOSE command (e.g. close 223 [reason] or cerrar #223 [reason])
   const closeMatch = text.match(/\b(?:close|cerrar)\s+#?(\d+)(?:\s+([\s\S]+))?/i);
   if (closeMatch) {
     return {
@@ -348,7 +377,7 @@ export function parseIssueCommand(
     };
   }
 
-  // 3. Comando COMMENT / COMENTAR (ej: comment 223 revisado y probado)
+  // 3. COMMENT command (e.g. comment 223 text or comentar 223 text)
   const commentMatch = text.match(/\b(?:comment|comentar)\s+#?(\d+)\s+([\s\S]+)/i);
   if (commentMatch) {
     return {
@@ -358,7 +387,7 @@ export function parseIssueCommand(
     };
   }
 
-  // 4. Comando VIEW / VER / LISTAR
+  // 4. VIEW command
   if (lower.includes("view") || lower.includes("ver") || lower.includes("list")) {
     const org: "pulsar" | "inled" = lower.includes("inled") && !lower.includes("pulsar") ? "inled" : "pulsar";
 
@@ -378,7 +407,7 @@ export function parseIssueCommand(
     };
   }
 
-  // 5. Comando CREATE (debe incluir error o suggestion, y pulsar o inled)
+  // 5. CREATE command
   const isError = lower.includes("error") || lower.includes("bug");
   const isSuggestion = lower.includes("suggestion") || lower.includes("idea") || lower.includes("sugerencia");
 
