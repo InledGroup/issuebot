@@ -119,16 +119,25 @@ export async function fetchProjectIssues(
   const boardUrl = isPulsar ? env.PULSAR_BOARD_URL : env.INLED_BOARD_URL;
   const orgName = isPulsar ? "Inled-Pulsar-OS" : "InledGroup";
 
+  const items: ProjectIssueItem[] = [];
+  let after: string | null = null;
+  let pageCount = 0;
+  const MAX_PAGES = 3;
+
   const query = `
-    query($projectId: ID!) {
+    query($projectId: ID!, $after: String) {
       node(id: $projectId) {
         ... on ProjectV2 {
           title
-          items(first: 40) {
+          items(first: 100, after: $after) {
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
             nodes {
               id
               type
-              fieldValues(first: 8) {
+              fieldValues(first: 10) {
                 nodes {
                   ... on ProjectV2ItemFieldSingleSelectValue {
                     field {
@@ -138,9 +147,18 @@ export async function fetchProjectIssues(
                     }
                     name
                   }
+                  ... on ProjectV2ItemFieldTextValue {
+                    field {
+                      ... on ProjectV2Field {
+                        name
+                      }
+                    }
+                    text
+                  }
                 }
               }
               content {
+                __typename
                 ... on Issue {
                   title
                   url
@@ -165,43 +183,71 @@ export async function fetchProjectIssues(
     }
   `;
 
-  const data = await callGitHubGraphQL(env.GITHUB_TOKEN, query, { projectId });
-  const rawNodes = data.node?.items?.nodes || [];
+  while (pageCount < MAX_PAGES) {
+    pageCount++;
+    const data = await callGitHubGraphQL(env.GITHUB_TOKEN, query, { projectId, after });
+    const project = data.node;
+    const pageItems = project?.items?.nodes || [];
 
-  const items: ProjectIssueItem[] = [];
+    for (const node of pageItems) {
+      const content = node.content;
 
-  for (const node of rawNodes) {
-    const content = node.content;
-    if (!content) continue;
+      // Extract field values
+      let itemType: string | undefined;
+      let itemStatus: string | undefined;
+      let textTitle: string | undefined;
 
-    // Obtener valor del campo 'Tipo' si existe
-    let itemType: string | undefined;
-    if (node.fieldValues?.nodes) {
-      for (const fv of node.fieldValues.nodes) {
-        if (fv.field?.name === "Tipo") {
-          itemType = fv.name;
-          break;
+      if (node.fieldValues?.nodes) {
+        for (const fv of node.fieldValues.nodes) {
+          if (fv.field?.name === "Tipo") {
+            itemType = fv.name;
+          } else if (fv.field?.name === "Status") {
+            itemStatus = fv.name;
+          } else if (fv.field?.name === "Title") {
+            textTitle = fv.text;
+          }
         }
       }
+
+      // Check if item is closed or completed
+      const isContentClosed =
+        content &&
+        (content.state === "CLOSED" || content.state === "MERGED");
+      const isStatusClosed =
+        itemStatus === "Completados" ||
+        itemStatus === "Done" ||
+        itemStatus === "Closed";
+
+      if (isContentClosed || isStatusClosed) {
+        continue;
+      }
+
+      const title = content?.title || textTitle || "Untitled";
+      const effectiveType = itemType || (title.toUpperCase().includes("[BUG]") ? "Error" : undefined);
+
+      if (filterType) {
+        if (!effectiveType || effectiveType.toLowerCase() !== filterType.toLowerCase()) {
+          continue;
+        }
+      }
+
+      const url = content && "url" in content && content.url ? content.url : boardUrl;
+      const number = content && "number" in content ? content.number : undefined;
+
+      items.push({
+        id: node.id,
+        title,
+        url,
+        state: "OPEN",
+        type: effectiveType,
+        number,
+      });
     }
 
-    // Filtrar estado: solo mostrar los abiertos (o draft)
-    const isClosed = content.state === "CLOSED" || content.state === "MERGED";
-    if (isClosed) continue;
-
-    // Si se especificó filtro de tipo (por ejemplo solo Errores en Pulsar)
-    if (filterType && itemType && itemType.toLowerCase() !== filterType.toLowerCase()) {
-      continue;
+    if (!project?.items?.pageInfo?.hasNextPage) {
+      break;
     }
-
-    items.push({
-      id: node.id,
-      title: content.title || "Untitled",
-      url: content.url || boardUrl,
-      state: content.state || "OPEN",
-      type: itemType,
-      number: content.number,
-    });
+    after = project.items.pageInfo.endCursor;
   }
 
   return { items, boardUrl, orgName };

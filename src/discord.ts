@@ -79,7 +79,15 @@ export function parseIssueCommand(
   // 1. Comando VIEW
   if (lower.includes("view") || lower.includes("ver") || lower.includes("list")) {
     const org: "pulsar" | "inled" = lower.includes("inled") && !lower.includes("pulsar") ? "inled" : "pulsar";
-    const filterType = lower.includes("error") || lower.includes("bug") ? "Error" : undefined;
+    // Pulsar defaults to Error filtering (View 2: Errors). Inled defaults to all open issues.
+    const filterType =
+      org === "pulsar"
+        ? lower.includes("suggestion") || lower.includes("idea")
+          ? "Idea"
+          : "Error"
+        : lower.includes("error") || lower.includes("bug")
+        ? "Error"
+        : undefined;
     return {
       action: "view",
       org,
