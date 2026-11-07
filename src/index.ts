@@ -109,15 +109,17 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
         return;
       }
 
-      const filterHeader = intent.filterType ? ` (${intent.filterType}s)` : "";
-      const lines = items.slice(0, 15).map((it, idx) => {
+      const filterHeader = intent.filterType ? ` [${intent.filterType}]` : "";
+      const displayItems = items.slice(0, 20);
+      const lines = displayItems.map((it, idx) => {
         const numStr = it.number ? `[#${it.number}] ` : "";
-        const typeStr = it.type ? `*[${it.type}]* ` : "";
-        return `${idx + 1}. ${numStr}${typeStr}**${it.title}**\n   🔗 ${it.url}`;
+        const icon = it.type === "Error" ? "🐛" : it.type === "Idea" ? "💡" : it.type === "Ayuda" ? "🤝" : "📌";
+        const typeStr = it.type ? `*${icon} [${it.type}]* ` : "";
+        return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
       });
 
-      const countNotice = items.length > 15 ? `\n\n*(Showing 15 of ${items.length} open issues)*` : "";
-      const replyContent = `📋 **${orgName} — Project Board Issues${filterHeader}:**\n\n${lines.join("\n\n")}${countNotice}\n\n👉 **View Project Board:** <${boardUrl}>`;
+      const countNotice = items.length > 20 ? `\n\n*(Mostrando 20 de ${items.length} issues abiertas)*` : "";
+      const replyContent = `📋 **${orgName} — Issues abiertas${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}${countNotice}\n\n👉 **Tablero completo:** <${boardUrl}>`;
 
       await sendDiscordMessage(env, message.channel_id, replyContent, message.id);
 

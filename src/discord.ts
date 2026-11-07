@@ -40,7 +40,7 @@ export type CommandIntent =
   | {
       action: "view";
       org: "pulsar" | "inled";
-      filterType?: "Error" | "Idea";
+      filterType?: string;
     }
   | {
       action: "create";
@@ -79,15 +79,17 @@ export function parseIssueCommand(
   // 1. Comando VIEW
   if (lower.includes("view") || lower.includes("ver") || lower.includes("list")) {
     const org: "pulsar" | "inled" = lower.includes("inled") && !lower.includes("pulsar") ? "inled" : "pulsar";
-    // Pulsar defaults to Error filtering (View 2: Errors). Inled defaults to all open issues.
-    const filterType =
-      org === "pulsar"
-        ? lower.includes("suggestion") || lower.includes("idea")
-          ? "Idea"
-          : "Error"
-        : lower.includes("error") || lower.includes("bug")
-        ? "Error"
-        : undefined;
+
+    // Si el usuario no indica tipo, filterType es undefined y devuelve todas (errores, ideas, ayuda...)
+    let filterType: string | undefined = undefined;
+    if (lower.includes("error") || lower.includes("bug")) {
+      filterType = "Error";
+    } else if (lower.includes("suggestion") || lower.includes("idea") || lower.includes("sugerencia")) {
+      filterType = "Idea";
+    } else if (lower.includes("ayuda") || lower.includes("help") || lower.includes("task")) {
+      filterType = "Ayuda";
+    }
+
     return {
       action: "view",
       org,

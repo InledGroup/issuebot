@@ -112,7 +112,7 @@ export async function createProjectDraftIssue(
 export async function fetchProjectIssues(
   env: Env,
   org: "pulsar" | "inled",
-  filterType?: "Error" | "Idea"
+  filterType?: string
 ): Promise<{ items: ProjectIssueItem[]; boardUrl: string; orgName: string }> {
   const isPulsar = org === "pulsar";
   const projectId = isPulsar ? env.PULSAR_PROJECT_ID : env.INLED_PROJECT_ID;
@@ -223,8 +223,21 @@ export async function fetchProjectIssues(
       }
 
       const title = content?.title || textTitle || "Untitled";
-      const effectiveType = itemType || (title.toUpperCase().includes("[BUG]") ? "Error" : undefined);
 
+      // If Tipo is not explicitly set, detect [BUG] / [IDEA] / [TASK] in title
+      let effectiveType = itemType;
+      if (!effectiveType) {
+        const upper = title.toUpperCase();
+        if (upper.includes("[BUG]") || upper.includes("ERROR")) {
+          effectiveType = "Error";
+        } else if (upper.includes("[IDEA]") || upper.includes("SUGGESTION")) {
+          effectiveType = "Idea";
+        } else if (upper.includes("[TASK]") || upper.includes("AYUDA") || upper.includes("HELP")) {
+          effectiveType = "Ayuda";
+        }
+      }
+
+      // If user specified a filterType, match case-insensitively
       if (filterType) {
         if (!effectiveType || effectiveType.toLowerCase() !== filterType.toLowerCase()) {
           continue;
