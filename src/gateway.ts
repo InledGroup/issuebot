@@ -161,6 +161,9 @@ export class DiscordGateway extends DurableObject {
     if (msg.t === "MESSAGE_CREATE") {
       await this.ctx.storage.put("lastDispatch", new Date().toISOString());
       await this.forwardEvent("MESSAGE_CREATE", msg.d);
+    } else if (msg.t === "INTERACTION_CREATE") {
+      await this.ctx.storage.put("lastDispatch", new Date().toISOString());
+      await this.forwardEvent("INTERACTION_CREATE", msg.d);
     }
   }
 

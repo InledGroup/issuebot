@@ -10,9 +10,13 @@ PULSAR_BOARD_URL = "https://github.com/orgs/Inled-Pulsar-OS/projects/1/views/2"
 PULSAR_TIPO_FIELD_ID = "PVTSSF_lADOEGtWb84Bbe-_zhWPMX0"
 PULSAR_TIPO_ERROR_ID = "0fad1b2f"
 PULSAR_TIPO_IDEA_ID = "cdb185ea"
+PULSAR_STATUS_FIELD_ID = "PVTSSF_lADOEGtWb84Bbe-_zhWPMU4"
+PULSAR_STATUS_DONE_ID = "98236657"
 
 INLED_PROJECT_ID = "PVT_kwDODfyzbM4BY-xQ"
 INLED_BOARD_URL = "https://github.com/orgs/InledGroup/projects/1/views/1"
+INLED_STATUS_FIELD_ID = "PVTSSF_lADODfyzbM4BY-xQzhUAs7k"
+INLED_STATUS_DONE_ID = "98236657"
 
 # Required Secrets (set via 'wrangler secret put <NAME>'):
 # - DISCORD_BOT_TOKEN

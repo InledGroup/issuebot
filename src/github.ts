@@ -267,3 +267,146 @@ export async function fetchProjectIssues(
 
   return { items, boardUrl, orgName };
 }
+
+/**
+ * Resolves an issue from project boards by number or falls back to Inled-Pulsar-OS/PKG
+ */
+export async function findIssueByNumber(
+  env: Env,
+  issueNum: number
+): Promise<{
+  item: ProjectIssueItem;
+  owner: string;
+  repo: string;
+  number: number;
+  isDraft: boolean;
+  org: "pulsar" | "inled";
+}> {
+  // First search in Pulsar
+  const pulsar = await fetchProjectIssues(env, "pulsar");
+  const pulsarItem = pulsar.items.find((i) => i.number === issueNum);
+  if (pulsarItem && pulsarItem.url) {
+    const m = pulsarItem.url.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+    if (m) {
+      return {
+        item: pulsarItem,
+        owner: m[1],
+        repo: m[2],
+        number: parseInt(m[3], 10),
+        isDraft: false,
+        org: "pulsar",
+      };
+    }
+  }
+
+  // Then search in Inled
+  const inled = await fetchProjectIssues(env, "inled");
+  const inledItem = inled.items.find((i) => i.number === issueNum);
+  if (inledItem && inledItem.url) {
+    const m = inledItem.url.match(/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
+    if (m) {
+      return {
+        item: inledItem,
+        owner: m[1],
+        repo: m[2],
+        number: parseInt(m[3], 10),
+        isDraft: false,
+        org: "inled",
+      };
+    }
+  }
+
+  // Fallback to Inled-Pulsar-OS/PKG
+  return {
+    item: {
+      id: "",
+      title: `#${issueNum}`,
+      number: issueNum,
+      url: `https://github.com/Inled-Pulsar-OS/PKG/issues/${issueNum}`,
+    },
+    owner: "Inled-Pulsar-OS",
+    repo: "PKG",
+    number: issueNum,
+    isDraft: false,
+    org: "pulsar",
+  };
+}
+
+/**
+ * Adds a comment to a GitHub issue
+ */
+export async function addIssueComment(
+  env: Env,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  body: string,
+  authorName?: string
+): Promise<{ commentUrl: string }> {
+  const authorPrefix = authorName ? `**💬 Comment from Discord by @${authorName}:**\n\n` : "";
+  const commentBody = `${authorPrefix}${body}`;
+
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "Content-Type": "application/json",
+      "User-Agent": "IssueBot-Discord-Bridge/1.0",
+      Accept: "application/vnd.github.v3+json",
+    },
+    body: JSON.stringify({ body: commentBody }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to add comment on ${owner}/${repo}#${issueNumber}: ${res.status} ${errText}`);
+  }
+
+  const json = (await res.json()) as { html_url: string };
+  return { commentUrl: json.html_url };
+}
+
+/**
+ * Closes an issue on GitHub
+ */
+export async function closeGitHubIssue(
+  env: Env,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  reason?: string,
+  authorName?: string
+): Promise<{ issueUrl: string; title: string }> {
+  if (reason) {
+    try {
+      await addIssueComment(
+        env,
+        owner,
+        repo,
+        issueNumber,
+        `🔒 **Issue closed via Discord**${authorName ? ` by @${authorName}` : ""}.\n\n*Reason:* ${reason}`
+      );
+    } catch {
+      // Ignorar fallo de comentario previo
+    }
+  }
+
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      "Content-Type": "application/json",
+      "User-Agent": "IssueBot-Discord-Bridge/1.0",
+      Accept: "application/vnd.github.v3+json",
+    },
+    body: JSON.stringify({ state: "closed", state_reason: "completed" }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to close issue ${owner}/${repo}#${issueNumber}: ${res.status} ${errText}`);
+  }
+
+  const json = (await res.json()) as { html_url: string; title: string };
+  return { issueUrl: json.html_url, title: json.title };
+}
