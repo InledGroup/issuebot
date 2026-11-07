@@ -2,6 +2,7 @@ name = "issuebot"
 main = "src/index.ts"
 compatibility_date = "2024-04-05"
 compatibility_flags = ["nodejs_compat"]
+account_id = "a52219f385f97d9f46f3153ecef16fde"
 
 [vars]
 PULSAR_PROJECT_ID = "PVT_kwDOEGtWb84Bbe-_"
@@ -27,4 +28,4 @@ class_name = "LogStore"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["DiscordGateway", "LogStore"]
+new_sqlite_classes = ["DiscordGateway", "LogStore"]
