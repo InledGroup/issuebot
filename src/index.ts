@@ -4,6 +4,7 @@ import { DiscordGateway } from "./gateway";
 import { createProjectDraftIssue, fetchProjectIssues } from "./github";
 import { logEvent, LogStore } from "./logger";
 import { DiscordMessage, Env } from "./types";
+import { getInternalGatewayToken, isRateLimited, sanitizeOutput } from "./security";
 
 export { DiscordGateway, LogStore };
 
@@ -54,6 +55,13 @@ async function handleDiscordEvents(
 ): Promise<Response> {
   if (request.headers.get("x-issuebot-gateway") !== "gateway-event") {
     return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Verificar token criptográfico interno generado desde el secreto del bot
+  const expectedToken = await getInternalGatewayToken(env);
+  const providedToken = request.headers.get("x-issuebot-token");
+  if (!providedToken || providedToken !== expectedToken) {
+    return new Response("Forbidden: Invalid internal gateway token", { status: 403 });
   }
 
   const body = (await request.json()) as { event: string; data: any };
@@ -130,10 +138,11 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       });
     } catch (err) {
       console.error("Error viewing issues:", err);
+      const safeError = sanitizeOutput(String(err));
       await sendDiscordMessage(
         env,
         message.channel_id,
-        `❌ Error querying GitHub Project Board: ${String(err)}`,
+        `❌ Error querying GitHub Project Board: ${safeError}`,
         message.id
       );
       await logEvent(env, {
@@ -141,7 +150,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
         event: "VIEW_FAILED",
         user: `@${authorName}`,
         org: orgLabel,
-        message: `Failed to fetch issues: ${String(err)}`,
+        message: `Failed to fetch issues: ${safeError}`,
       });
     }
     return;
@@ -150,6 +159,18 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
   // 2. COMANDO CREATE (Crear issue en el board)
   if (intent.action === "create") {
     const orgLabel = intent.org === "pulsar" ? "Inled-Pulsar-OS" : "InledGroup";
+
+    // Protección Anti-Spam: Rate limiting por usuario (máximo 3 issues por minuto)
+    if (isRateLimited(message.author.id, 3, 60)) {
+      await sendDiscordMessage(
+        env,
+        message.channel_id,
+        `⚠️ Por favor espera un momento antes de añadir más issues (máximo 3 por minuto).`,
+        message.id
+      );
+      return;
+    }
+
     await logEvent(env, {
       level: "INFO",
       event: "COMMAND_CREATE",
@@ -188,10 +209,11 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       });
     } catch (err) {
       console.error("Error creating project issue:", err);
+      const safeError = sanitizeOutput(String(err));
       await sendDiscordMessage(
         env,
         message.channel_id,
-        `❌ Error adding issue to GitHub Project Board: ${String(err)}`,
+        `❌ Error adding issue to GitHub Project Board: ${safeError}`,
         message.id
       );
       await logEvent(env, {
@@ -199,7 +221,7 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
         event: "CREATE_FAILED",
         user: `@${authorName}`,
         org: orgLabel,
-        message: `Failed to create issue: ${String(err)}`,
+        message: `Failed to create issue: ${safeError}`,
       });
     }
     return;

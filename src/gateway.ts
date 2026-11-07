@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { Env } from "./types";
+import { getInternalGatewayToken } from "./security";
 
 const GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
 
@@ -168,11 +169,13 @@ export class DiscordGateway extends DurableObject {
     if (!url) return;
 
     try {
+      const authToken = await getInternalGatewayToken(this.env as Env);
       await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-issuebot-gateway": "gateway-event",
+          "x-issuebot-token": authToken,
         },
         body: JSON.stringify({ event, data }),
       });

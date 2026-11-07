@@ -19,12 +19,14 @@ export async function callGitHubGraphQL(
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`GitHub API error ${res.status}: ${text}`);
+    const safeText = text.replace(/gh[opars]_[a-zA-Z0-9_]+/g, "[REDACTED]");
+    throw new Error(`GitHub API error ${res.status}: ${safeText}`);
   }
 
   const json = (await res.json()) as { data?: any; errors?: Array<{ message: string }> };
   if (json.errors && json.errors.length > 0) {
-    throw new Error(`GitHub GraphQL error: ${json.errors.map((e) => e.message).join(", ")}`);
+    const safeErr = json.errors.map((e) => e.message).join(", ").replace(/gh[opars]_[a-zA-Z0-9_]+/g, "[REDACTED]");
+    throw new Error(`GitHub GraphQL error: ${safeErr}`);
   }
 
   return json.data;
