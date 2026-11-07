@@ -66,6 +66,8 @@ npx wrangler secret put DISCORD_BOT_TOKEN
 npx wrangler secret put GITHUB_TOKEN
 ```
 
+![](settings.png)
+
 ---
 
 ## Deployment
