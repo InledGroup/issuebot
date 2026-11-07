@@ -110,16 +110,14 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
       }
 
       const filterHeader = intent.filterType ? ` [${intent.filterType}]` : "";
-      const displayItems = items.slice(0, 20);
-      const lines = displayItems.map((it, idx) => {
+      const lines = items.map((it, idx) => {
         const numStr = it.number ? `[#${it.number}] ` : "";
         const icon = it.type === "Error" ? "🐛" : it.type === "Idea" ? "💡" : it.type === "Ayuda" ? "🤝" : "📌";
         const typeStr = it.type ? `*${icon} [${it.type}]* ` : "";
         return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
       });
 
-      const countNotice = items.length > 20 ? `\n\n*(Mostrando 20 de ${items.length} issues abiertas)*` : "";
-      const replyContent = `📋 **${orgName} — Issues abiertas${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}${countNotice}\n\n👉 **Tablero completo:** <${boardUrl}>`;
+      const replyContent = `📋 **${orgName} — Issues abiertas${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Tablero completo:** <${boardUrl}>`;
 
       await sendDiscordMessage(env, message.channel_id, replyContent, message.id);
 

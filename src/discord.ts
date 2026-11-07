@@ -2,38 +2,81 @@ import { DiscordMessage, Env } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
 
+export function splitDiscordMessage(text: string, maxLen = 1900): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  const lines = text.split("\n");
+  let current = "";
+
+  for (const line of lines) {
+    if (current.length + line.length + 1 > maxLen) {
+      if (current.trim().length > 0) {
+        chunks.push(current.trim());
+        current = "";
+      }
+      if (line.length > maxLen) {
+        let remaining = line;
+        while (remaining.length > maxLen) {
+          chunks.push(remaining.slice(0, maxLen));
+          remaining = remaining.slice(maxLen);
+        }
+        current = remaining;
+      } else {
+        current = line;
+      }
+    } else {
+      current = current.length > 0 ? `${current}\n${line}` : line;
+    }
+  }
+
+  if (current.trim().length > 0) {
+    chunks.push(current.trim());
+  }
+
+  return chunks;
+}
+
 export async function sendDiscordMessage(
   env: Env,
   channelId: string,
   content: string,
   replyToMessageId?: string
 ): Promise<Response> {
-  const payload: Record<string, unknown> = {
-    content,
-    allowed_mentions: { replied_user: true },
-  };
+  const chunks = splitDiscordMessage(content, 1900);
+  let lastRes: Response | null = null;
 
-  if (replyToMessageId) {
-    payload.message_reference = {
-      message_id: replyToMessageId,
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const payload: Record<string, unknown> = {
+      content: chunk,
+      allowed_mentions: { replied_user: i === 0 },
     };
+
+    if (i === 0 && replyToMessageId) {
+      payload.message_reference = {
+        message_id: replyToMessageId,
+      };
+    }
+
+    const res = await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Discord message send failed: ${res.status} ${errText}`);
+    }
+
+    lastRes = res;
   }
 
-  const res = await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Discord message send failed: ${res.status} ${errText}`);
-  }
-
-  return res;
+  return lastRes!;
 }
 
 export type CommandIntent =
