@@ -11,7 +11,7 @@ import {
 import {
   addIssueComment,
   closeGitHubIssue,
-  createProjectDraftIssue,
+  createProjectIssue,
   fetchProjectIssues,
   findIssueByNumber,
 } from "./github";
@@ -312,15 +312,16 @@ async function handleModalSubmit(
     const body = `Reported via Discord Modal by @${authorName}\n\n${details || title}`;
 
     try {
-      const res = await createProjectDraftIssue(env, org, title, body, type);
+      const res = await createProjectIssue(env, org, title, body, type);
       const typeEmoji = type === "Error" ? "🐛" : "💡";
       const replyText =
-        `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
+        `✅ **Issue #${res.issueNumber} successfully created on GitHub!**\n\n` +
+        `• **Title:** ${res.title}\n` +
         `• **Organization:** ${res.orgName}\n` +
         `• **Type:** ${typeEmoji} **${type}**\n` +
-        `• **Title:** ${title}\n` +
         `• **Reported by:** <@${user?.id}>\n\n` +
-        `👉 **View on Project Board:** <${res.boardUrl}>`;
+        `🔗 **GitHub Issue:** <${res.issueUrl}>\n` +
+        `👉 **Project Board:** <${res.boardUrl}>`;
 
       await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
         content: replyText,
@@ -332,7 +333,7 @@ async function handleModalSubmit(
         event: "MODAL_ISSUE_CREATED",
         user: `@${authorName}`,
         org: res.orgName as any,
-        message: `Created ${type} via Modal: "${title}"`,
+        message: `Created ${type} #${res.issueNumber}: "${title}"`,
       });
     } catch (err) {
       await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
@@ -487,14 +488,15 @@ async function handleSlashCommand(
       const details = getOpt("details");
       const body = `Reported via Discord Slash Command by @${authorName}\n\n${details || title}`;
 
-      const res = await createProjectDraftIssue(env, org, title, body, type);
+      const res = await createProjectIssue(env, org, title, body, type);
       const typeEmoji = type === "Error" ? "🐛" : "💡";
       const replyText =
-        `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
+        `✅ **Issue #${res.issueNumber} successfully created on GitHub!**\n\n` +
+        `• **Title:** ${res.title}\n` +
         `• **Organization:** ${res.orgName}\n` +
         `• **Type:** ${typeEmoji} **${type}**\n` +
-        `• **Title:** ${title}\n` +
         `• **Reported by:** <@${user?.id}>\n\n` +
+        `🔗 **GitHub Issue:** <${res.issueUrl}>\n` +
         `👉 **View on Project Board:** <${res.boardUrl}>`;
 
       await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
@@ -507,7 +509,7 @@ async function handleSlashCommand(
         event: "COMMAND_ISSUE_CREATED",
         user: `@${authorName}`,
         org: res.orgName as any,
-        message: `Created ${type}: "${title}"`,
+        message: `Created ${type} #${res.issueNumber}: "${title}"`,
       });
       return;
     }

@@ -32,50 +32,124 @@ export async function callGitHubGraphQL(
   return json.data;
 }
 
+const repoIdCache = new Map<string, string>();
+
 /**
- * Creates a draft issue item on the designated GitHub Project Board
+ * Resolves repository ID given owner and repo name
  */
-export async function createProjectDraftIssue(
+export async function getRepositoryId(
+  env: Env,
+  owner: string,
+  repo: string
+): Promise<string> {
+  const cacheKey = `${owner}/${repo}`.toLowerCase();
+  if (repoIdCache.has(cacheKey)) {
+    return repoIdCache.get(cacheKey)!;
+  }
+
+  const query = `
+    query($owner: String!, $name: String!) {
+      repository(owner: $owner, name: $name) {
+        id
+      }
+    }
+  `;
+
+  const data = await callGitHubGraphQL(env.GITHUB_TOKEN, query, { owner, name: repo });
+  const id = data.repository?.id;
+  if (!id) {
+    throw new Error(`Repository ${owner}/${repo} not found on GitHub`);
+  }
+  repoIdCache.set(cacheKey, id);
+  return id;
+}
+
+/**
+ * Creates a real GitHub repository issue and links it to the designated GitHub Project Board
+ */
+export async function createProjectIssue(
   env: Env,
   org: "pulsar" | "inled",
   title: string,
   body: string,
-  type: "Error" | "Idea"
-): Promise<{ itemId: string; boardUrl: string; orgName: string; type: string }> {
+  type: "Error" | "Idea",
+  targetRepo?: string
+): Promise<{
+  itemId?: string;
+  issueId: string;
+  issueNumber: number;
+  issueUrl: string;
+  title: string;
+  boardUrl: string;
+  orgName: string;
+  type: string;
+}> {
   const isPulsar = org === "pulsar";
   const projectId = isPulsar ? env.PULSAR_PROJECT_ID : env.INLED_PROJECT_ID;
   const boardUrl = isPulsar ? env.PULSAR_BOARD_URL : env.INLED_BOARD_URL;
   const orgName = isPulsar ? "Inled-Pulsar-OS" : "InledGroup";
 
-  // 1. Crear el draft issue en el Project Board
-  const addMutation = `
-    mutation($projectId: ID!, $title: String!, $body: String) {
-      addProjectV2DraftIssue(input: {
-        projectId: $projectId
+  const owner = isPulsar ? "Inled-Pulsar-OS" : "InledGroup";
+  const repoName = targetRepo || (isPulsar ? "PKG" : "reports");
+
+  // 1. Get Repository GraphQL ID
+  const repositoryId = await getRepositoryId(env, owner, repoName);
+
+  // 2. Create the real GitHub issue in the repository
+  const createIssueMutation = `
+    mutation($repositoryId: ID!, $title: String!, $body: String) {
+      createIssue(input: {
+        repositoryId: $repositoryId
         title: $title
         body: $body
       }) {
-        projectItem {
+        issue {
           id
+          number
+          url
+          title
         }
       }
     }
   `;
 
-  const addData = await callGitHubGraphQL(env.GITHUB_TOKEN, addMutation, {
-    projectId,
+  const issueData = await callGitHubGraphQL(env.GITHUB_TOKEN, createIssueMutation, {
+    repositoryId,
     title,
     body,
   });
 
-  const itemId = addData.addProjectV2DraftIssue?.projectItem?.id;
-  if (!itemId) {
-    throw new Error("Could not retrieve created project item ID");
+  const createdIssue = issueData.createIssue?.issue;
+  if (!createdIssue?.id) {
+    throw new Error("Could not create GitHub issue in repository " + owner + "/" + repoName);
   }
 
-  // 2. Si es Pulsar, asignar el campo 'Tipo' (Error o Idea)
-  if (isPulsar && env.PULSAR_TIPO_FIELD_ID) {
-    try {
+  let itemId: string | undefined = undefined;
+
+  // 3. Add the created issue to the Project Board
+  try {
+    const addToProjectMutation = `
+      mutation($projectId: ID!, $contentId: ID!) {
+        addProjectV2ItemById(input: {
+          projectId: $projectId
+          contentId: $contentId
+        }) {
+          item {
+            id
+          }
+        }
+      }
+    `;
+
+    const projectItemData = await callGitHubGraphQL(env.GITHUB_TOKEN, addToProjectMutation, {
+      projectId,
+      contentId: createdIssue.id,
+    });
+
+    itemId = projectItemData.addProjectV2ItemById?.item?.id;
+
+    // 4. Set the 'Tipo' field (Error or Idea) on the Project Board item
+    if (isPulsar && env.PULSAR_TIPO_FIELD_ID && itemId) {
       const optionId = type === "Error" ? env.PULSAR_TIPO_ERROR_ID : env.PULSAR_TIPO_IDEA_ID;
       const updateFieldMutation = `
         mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
@@ -100,12 +174,21 @@ export async function createProjectDraftIssue(
         fieldId: env.PULSAR_TIPO_FIELD_ID,
         optionId,
       });
-    } catch (fieldErr) {
-      console.warn("Could not set 'Tipo' field on Pulsar board:", fieldErr);
     }
+  } catch (projErr) {
+    console.warn("Issue created on repo, but failed linking to project board:", projErr);
   }
 
-  return { itemId, boardUrl, orgName, type };
+  return {
+    itemId,
+    issueId: createdIssue.id,
+    issueNumber: createdIssue.number,
+    issueUrl: createdIssue.url,
+    title: createdIssue.title,
+    boardUrl,
+    orgName,
+    type,
+  };
 }
 
 /**
