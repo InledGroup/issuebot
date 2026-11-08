@@ -21,15 +21,9 @@ INLED_STATUS_DONE_ID = "98236657"
 # Required Secrets (set via 'wrangler secret put <NAME>'):
 # - DISCORD_BOT_TOKEN
 # - GITHUB_TOKEN
-
-[[durable_objects.bindings]]
-name = "DISCORD_GATEWAY"
-class_name = "DiscordGateway"
-
-[[durable_objects.bindings]]
-name = "LOG_STORE"
-class_name = "LogStore"
+# - DISCORD_PUBLIC_KEY (optional, automatically resolved via Discord API if omitted)
 
 [[migrations]]
-tag = "v1"
-new_sqlite_classes = ["DiscordGateway", "LogStore"]
+tag = "v2"
+deleted_classes = ["DiscordGateway", "LogStore"]
+

@@ -1,5 +1,75 @@
 import { Env } from "./types";
 
+let cachedPublicKey: string | null = null;
+
+function hexToUint8Array(hex: string): Uint8Array {
+  const match = hex.match(/.{1,2}/g);
+  if (!match) return new Uint8Array(0);
+  return new Uint8Array(match.map((byte) => parseInt(byte, 16)));
+}
+
+/**
+ * Resolves Discord Application Public Key (from env or lazily from Discord API using Bot Token)
+ */
+export async function getDiscordPublicKey(env: Env): Promise<string> {
+  if (env.DISCORD_PUBLIC_KEY) {
+    return env.DISCORD_PUBLIC_KEY.trim();
+  }
+  if (cachedPublicKey) {
+    return cachedPublicKey;
+  }
+  const res = await fetch("https://discord.com/api/v10/oauth2/applications/@me", {
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+    },
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to fetch Discord application info (${res.status}): ${errText}`);
+  }
+  const data = (await res.json()) as { verify_key?: string };
+  if (!data.verify_key) {
+    throw new Error("Discord application object did not contain verify_key");
+  }
+  cachedPublicKey = data.verify_key;
+  return cachedPublicKey;
+}
+
+/**
+ * Cryptographically verifies an incoming Discord Interaction HTTP request using Ed25519 Web Crypto.
+ */
+export async function verifyDiscordRequest(
+  request: Request,
+  publicKeyHex: string,
+  rawBody: string
+): Promise<boolean> {
+  const signature = request.headers.get("x-signature-ed25519");
+  const timestamp = request.headers.get("x-signature-timestamp");
+
+  if (!signature || !timestamp || !publicKeyHex) {
+    return false;
+  }
+
+  try {
+    const keyData = hexToUint8Array(publicKeyHex);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "Ed25519" },
+      false,
+      ["verify"]
+    );
+
+    const sigData = hexToUint8Array(signature);
+    const data = new TextEncoder().encode(timestamp + rawBody);
+
+    return await crypto.subtle.verify("Ed25519", key, sigData, data);
+  } catch (err) {
+    console.error("Discord signature verification error:", err);
+    return false;
+  }
+}
+
 /**
  * Computes an internal authentication token derived from DISCORD_BOT_TOKEN
  * that only this Cloudflare Worker runtime knows.

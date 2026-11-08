@@ -1,6 +1,7 @@
 export interface Env {
   DISCORD_BOT_TOKEN: string;
   GITHUB_TOKEN: string;
+  DISCORD_PUBLIC_KEY?: string;
   BOT_USER_ID?: string;
 
   PULSAR_PROJECT_ID: string;
@@ -15,9 +16,6 @@ export interface Env {
   INLED_BOARD_URL: string;
   INLED_STATUS_FIELD_ID?: string;
   INLED_STATUS_DONE_ID?: string;
-
-  DISCORD_GATEWAY: DurableObjectNamespace;
-  LOG_STORE: DurableObjectNamespace;
 }
 
 export type LogLevel = "INFO" | "SUCCESS" | "WARN" | "ERROR";
@@ -63,6 +61,18 @@ export interface DiscordInteraction {
   application_id: string;
   type: number; // 2: command, 3: message component (button), 5: modal submit
   data?: {
+    id?: string;
+    name?: string;
+    options?: Array<{
+      name: string;
+      type: number;
+      value?: any;
+      options?: Array<{
+        name: string;
+        type: number;
+        value?: any;
+      }>;
+    }>;
     custom_id?: string;
     component_type?: number;
     values?: string[];

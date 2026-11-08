@@ -5,11 +5,9 @@ import {
   getCloseModal,
   getCommentModal,
   getCreateIssueModal,
-  parseIssueCommand,
-  respondInteraction,
+  registerSlashCommands,
   sendDiscordMessage,
 } from "./discord";
-import { DiscordGateway } from "./gateway";
 import {
   addIssueComment,
   closeGitHubIssue,
@@ -17,77 +15,95 @@ import {
   fetchProjectIssues,
   findIssueByNumber,
 } from "./github";
-import { logEvent, LogStore } from "./logger";
-import { DiscordInteraction, DiscordMessage, Env } from "./types";
-import { getInternalGatewayToken, isRateLimited, sanitizeOutput } from "./security";
-
-export { DiscordGateway, LogStore };
+import { clearRecentLogs, getRecentLogs, logEvent } from "./logger";
+import {
+  getDiscordPublicKey,
+  isRateLimited,
+  sanitizeOutput,
+  verifyDiscordRequest,
+} from "./security";
+import { DiscordInteraction, Env } from "./types";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Public activity log dashboard
+    // 1. DISCORD INTERACTIONS WEBHOOK ENDPOINT
+    // Handles requests at root '/', '/discord/interactions', '/api/interactions'
+    // or any request containing Discord's Ed25519 signature headers.
+    const isInteraction =
+      request.method === "POST" &&
+      (path === "/" ||
+        path === "/discord/interactions" ||
+        path === "/api/interactions" ||
+        request.headers.has("x-signature-ed25519"));
+
+    if (isInteraction) {
+      return await handleDiscordInteraction(request, env, ctx);
+    }
+
+    // 2. DASHBOARD HTML
     if (path === "/" || path === "/logs" || path === "/index.html") {
       return serveDashboardHtml();
     }
 
-    // Logs API
+    // 3. API STATUS
+    if (path === "/api/status") {
+      const logs = getRecentLogs();
+      return Response.json({
+        ok: true,
+        mode: "Discord Interactions Webhook (0 Durable Objects - 100% Free)",
+        durableObjectsCount: 0,
+        botUsername: "IssueBot",
+        totalLogs: logs.length,
+      });
+    }
+
+    // 4. API LOGS
     if (path === "/api/logs") {
-      const store = env.LOG_STORE.get(env.LOG_STORE.idFromName("global"));
       if (request.method === "GET") {
-        return await store.fetch(new Request("https://internal/logs"));
+        return Response.json(getRecentLogs());
       }
       if (request.method === "DELETE") {
-        return await store.fetch(new Request("https://internal/clear", { method: "DELETE" }));
+        clearRecentLogs();
+        return Response.json({ ok: true });
       }
     }
 
-    // Status API
-    if (path === "/api/status") {
-      return await handleStatus(env);
+    // 5. REGISTER SLASH COMMANDS API
+    if (path === "/api/register-commands" && request.method === "POST") {
+      try {
+        const result = await registerSlashCommands(env);
+        return Response.json(result);
+      } catch (err) {
+        return Response.json({ ok: false, error: sanitizeOutput(String(err)) }, { status: 500 });
+      }
     }
 
-    // Gateway Reconnect API
-    if (path === "/api/connect" && request.method === "POST") {
-      return await handleConnect(env, url);
-    }
-
-    // Internal Gateway Events
-    if (path === "/discord/events") {
-      return await handleDiscordEvents(request, env, ctx);
+    // 6. POST PANEL TO DISCORD CHANNEL API
+    if (path === "/api/post-panel" && request.method === "POST") {
+      try {
+        const body = (await request.json()) as { channel_id?: string };
+        if (!body.channel_id) {
+          return Response.json({ ok: false, error: "Missing channel_id" }, { status: 400 });
+        }
+        await sendDiscordMessage(
+          env,
+          body.channel_id,
+          getHelpMessage(),
+          undefined,
+          buildControlActionRows()
+        );
+        return Response.json({ ok: true, message: `Panel posted to channel ${body.channel_id}` });
+      } catch (err) {
+        return Response.json({ ok: false, error: sanitizeOutput(String(err)) }, { status: 500 });
+      }
     }
 
     return new Response("Not found", { status: 404 });
   },
 };
-
-async function handleDiscordEvents(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext
-): Promise<Response> {
-  if (request.headers.get("x-issuebot-gateway") !== "gateway-event") {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const expectedToken = await getInternalGatewayToken(env);
-  const providedToken = request.headers.get("x-issuebot-token");
-  if (!providedToken || providedToken !== expectedToken) {
-    return new Response("Forbidden: Invalid internal gateway token", { status: 403 });
-  }
-
-  const body = (await request.json()) as { event: string; data: any };
-
-  if (body.event === "MESSAGE_CREATE") {
-    ctx.waitUntil(processMessage(env, body.data as DiscordMessage));
-  } else if (body.event === "INTERACTION_CREATE") {
-    ctx.waitUntil(processInteraction(env, body.data as DiscordInteraction));
-  }
-
-  return new Response("ok");
-}
 
 function getHelpMessage(): string {
   return (
@@ -98,17 +114,13 @@ function getHelpMessage(): string {
     `• **💬 Comment**: Add a progress update or comment to any issue.\n` +
     `• **🔒 Close Issue**: Mark an issue as closed and resolved on GitHub.\n` +
     `• **🚀 Pulsar (All) / 🏢 InledGroup**: Filter issues by organization.\n\n` +
-    `**⚡ Quick Text Commands:**\n` +
-    `• \`!issue help\` or \`@IssueBot help\` ➔ Display this guide and interactive controls.\n` +
-    `• \`@IssueBot view pulsar\` ➔ Show all open issues on Pulsar OS Project Board.\n` +
-    `• \`@IssueBot view pulsar errors\` ➔ Show open errors only.\n` +
-    `• \`@IssueBot view pulsar ideas\` ➔ Show ideas and feature proposals.\n` +
-    `• \`@IssueBot view inled\` ➔ Show open issues on InledGroup Board.\n` +
-    `• \`@IssueBot pulsar error <description>\` ➔ Create an error on Pulsar OS Board.\n` +
-    `• \`@IssueBot pulsar idea <description>\` ➔ Submit a proposal to Pulsar OS Board.\n` +
-    `• \`@IssueBot inled error <description>\` ➔ Create an error on InledGroup Board.\n` +
-    `• \`@IssueBot comment #223 <message>\` ➔ Post a comment directly on issue #223.\n` +
-    `• \`@IssueBot close #223 [optional reason]\` ➔ Close issue #223 on GitHub.\n\n` +
+    `**⚡ Slash Commands:**\n` +
+    `• \`/issue help\` ➔ Display this guide and interactive controls.\n` +
+    `• \`/issue view [org] [type]\` ➔ View open issues on project boards.\n` +
+    `• \`/issue create <title> <org> <type> [details]\` ➔ Create a new issue.\n` +
+    `• \`/issue comment <number> <message>\` ➔ Post a comment directly on an issue.\n` +
+    `• \`/issue close <number> [reason]\` ➔ Close an issue on GitHub.\n` +
+    `• \`/panel\` ➔ Post the interactive button panel in the current channel.\n\n` +
     `🔗 **Pulsar OS Project Board:** <https://github.com/orgs/Inled-Pulsar-OS/projects/1/views/2>\n` +
     `🔗 **InledGroup Project Board:** <https://github.com/orgs/InledGroup/projects/1/views/1>`
   );
@@ -129,378 +141,326 @@ function getModalValue(components: any[] | undefined, customId: string): string 
 }
 
 /**
- * Handles Interactive Component clicks and Modal Submissions from Discord
+ * Handles incoming Discord Interactions sent via Discord HTTP Webhooks
  */
-async function processInteraction(env: Env, interaction: DiscordInteraction): Promise<void> {
+async function handleDiscordInteraction(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext
+): Promise<Response> {
+  const rawBody = await request.text();
+
+  // 1. Cryptographic Ed25519 Signature Verification
+  let publicKey = "";
+  try {
+    publicKey = await getDiscordPublicKey(env);
+  } catch (err) {
+    console.error("Failed to obtain Discord public key:", err);
+    return new Response("Configuration error: Missing public key", { status: 500 });
+  }
+
+  const isValid = await verifyDiscordRequest(request, publicKey, rawBody);
+  if (!isValid) {
+    return new Response("Invalid request signature", { status: 401 });
+  }
+
+  const interaction = JSON.parse(rawBody) as DiscordInteraction;
+
+  // 2. Interaction Type 1: PING (Required for Discord webhook verification)
+  if (interaction.type === 1) {
+    return Response.json({ type: 1 });
+  }
+
   const user = interaction.user || interaction.member?.user;
   const authorName = user?.global_name || user?.username || "DiscordUser";
   const customId = interaction.data?.custom_id || "";
 
-  // 1. BUTTON CLICKS (Component Type 3)
-  if (interaction.type === 3) {
-    // Open Modals: must respond immediately with type: 9 (MODAL) within 3 seconds
-    if (customId === "action:open_create_modal") {
-      await respondInteraction(interaction.id, interaction.token, getCreateIssueModal());
-      return;
-    }
+  // 3. Interaction Type 2: APPLICATION_COMMAND (Slash Commands)
+  if (interaction.type === 2) {
+    const cmdName = interaction.data?.name;
 
-    if (customId === "action:open_comment_modal") {
-      await respondInteraction(interaction.id, interaction.token, getCommentModal());
-      return;
-    }
-
-    if (customId === "action:open_close_modal") {
-      await respondInteraction(interaction.id, interaction.token, getCloseModal());
-      return;
-    }
-
-    if (customId === "action:show_help") {
-      await respondInteraction(interaction.id, interaction.token, {
+    if (cmdName === "help" || cmdName === "panel") {
+      return Response.json({
         type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
         data: {
           content: getHelpMessage(),
           components: buildControlActionRows(),
         },
       });
-      return;
     }
 
-    // Filter Buttons: Defer update immediately (type: 6) so Discord doesn't time out, then edit message
-    if (customId.startsWith("filter:")) {
-      // Step 1: Acknowledge interaction immediately (< 50ms)
-      await respondInteraction(interaction.id, interaction.token, {
-        type: 6, // DEFERRED_UPDATE_MESSAGE
-      });
+    if (cmdName === "issue") {
+      const subOption = interaction.data?.options?.[0];
+      const subName = subOption?.name || "help";
 
-      const parts = customId.split(":");
-      const org = (parts[1] === "inled" ? "inled" : "pulsar") as "pulsar" | "inled";
-      const filterType = parts[2] === "all" ? undefined : parts[2];
-
-      try {
-        const { items, boardUrl, orgName } = await fetchProjectIssues(env, org, filterType);
-        const filterHeader = filterType ? ` [${filterType}]` : "";
-        const lines = items.map((it, idx) => {
-          const numStr = it.number ? `[#${it.number}] ` : "";
-          const icon = it.type === "Error" ? "🐛" : it.type === "Idea" ? "💡" : it.type === "Ayuda" ? "🤝" : "📌";
-          const typeStr = it.type ? `*${icon} [${it.type}]* ` : "";
-          return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
-        });
-
-        const replyContent =
-          lines.length === 0
-            ? `ℹ️ No open issues found on **${orgName}**${filterHeader}.\n\n👉 **Full Project Board:** <${boardUrl}>`
-            : `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
-
-        // Step 2: Update original message with the fetched issues and buttons
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: replyContent,
-          components: buildControlActionRows(),
-        });
-      } catch (err) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: `❌ Error querying issues: ${sanitizeOutput(String(err))}`,
-          components: buildControlActionRows(),
+      if (subName === "help") {
+        return Response.json({
+          type: 4,
+          data: {
+            content: getHelpMessage(),
+            components: buildControlActionRows(),
+          },
         });
       }
-      return;
+
+      // For long-running operations, defer message source immediately (< 50ms)
+      ctx.waitUntil(handleSlashCommand(env, interaction, subName, subOption?.options || []));
+      return Response.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
     }
   }
 
-  // 2. MODAL FORM SUBMISSIONS (Type 5)
-  if (interaction.type === 5) {
-    const components = interaction.data?.components;
+  // 4. Interaction Type 3: MESSAGE_COMPONENT (Buttons)
+  if (interaction.type === 3) {
+    // Modal Openers must return type: 9 synchronously in the HTTP response
+    if (customId === "action:open_create_modal") {
+      return Response.json(getCreateIssueModal());
+    }
+    if (customId === "action:open_comment_modal") {
+      return Response.json(getCommentModal());
+    }
+    if (customId === "action:open_close_modal") {
+      return Response.json(getCloseModal());
+    }
+    if (customId === "action:show_help") {
+      return Response.json({
+        type: 4,
+        data: {
+          content: getHelpMessage(),
+          components: buildControlActionRows(),
+        },
+      });
+    }
 
-    // Acknowledge modal submission immediately with deferred source (type: 5)
-    await respondInteraction(interaction.id, interaction.token, {
-      type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    // Filter Buttons: Defer update immediately (type: 6) and process in background
+    if (customId.startsWith("filter:")) {
+      ctx.waitUntil(handleFilterButton(env, interaction, customId));
+      return Response.json({ type: 6 }); // DEFERRED_UPDATE_MESSAGE
+    }
+  }
+
+  // 5. Interaction Type 5: MODAL_SUBMIT
+  if (interaction.type === 5) {
+    ctx.waitUntil(handleModalSubmit(env, interaction, authorName));
+    return Response.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+  }
+
+  return Response.json({ type: 4, data: { content: "Unrecognized interaction" } });
+}
+
+async function handleFilterButton(
+  env: Env,
+  interaction: DiscordInteraction,
+  customId: string
+): Promise<void> {
+  const parts = customId.split(":");
+  const org = (parts[1] === "inled" ? "inled" : "pulsar") as "pulsar" | "inled";
+  const filterType = parts[2] === "all" ? undefined : parts[2];
+
+  try {
+    const { items, boardUrl, orgName } = await fetchProjectIssues(env, org, filterType);
+    const filterHeader = filterType ? ` [${filterType}]` : "";
+    const lines = items.map((it, idx) => {
+      const numStr = it.number ? `[#${it.number}] ` : "";
+      const icon = it.type === "Error" ? "🐛" : it.type === "Idea" ? "💡" : it.type === "Ayuda" ? "🤝" : "📌";
+      const typeStr = it.type ? `*${icon} [${it.type}]* ` : "";
+      return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
     });
 
-    // Create Issue Modal
-    if (customId === "modal_submit_create") {
-      const orgInput = getModalValue(components, "org").toLowerCase();
-      const org: "pulsar" | "inled" = orgInput.includes("inled") ? "inled" : "pulsar";
-      const typeInput = getModalValue(components, "type").toLowerCase();
-      const type: "Error" | "Idea" = typeInput.includes("idea") || typeInput.includes("suggestion") ? "Idea" : "Error";
-      const title = getModalValue(components, "title") || "Untitled issue";
-      const details = getModalValue(components, "details");
-      const body = `Reported via Discord Modal by @${authorName}\n\n${details || title}`;
+    const replyContent =
+      lines.length === 0
+        ? `ℹ️ No open issues found on **${orgName}**${filterHeader}.\n\n👉 **Full Project Board:** <${boardUrl}>`
+        : `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
 
-      try {
-        const res = await createProjectDraftIssue(env, org, title, body, type);
-        const typeEmoji = type === "Error" ? "🐛" : "💡";
-        const replyText =
-          `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
-          `• **Organization:** ${res.orgName}\n` +
-          `• **Type:** ${typeEmoji} **${type}**\n` +
-          `• **Title:** ${title}\n` +
-          `• **Reported by:** <@${user?.id}>\n\n` +
-          `👉 **View on Project Board:** <${res.boardUrl}>`;
-
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: replyText,
-          components: buildControlActionRows(),
-        });
-
-        await logEvent(env, {
-          level: "SUCCESS",
-          event: "MODAL_ISSUE_CREATED",
-          user: `@${authorName}`,
-          org: res.orgName as any,
-          message: `Created ${type} via Modal: "${title}"`,
-        });
-      } catch (err) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: `❌ Error creating issue: ${sanitizeOutput(String(err))}`,
-          components: buildControlActionRows(),
-        });
-      }
-      return;
-    }
-
-    // Comment Modal
-    if (customId === "modal_submit_comment") {
-      const numRaw = getModalValue(components, "number").replace(/#/g, "");
-      const issueNum = parseInt(numRaw, 10);
-      const commentText = getModalValue(components, "comment");
-
-      if (isNaN(issueNum) || !commentText) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: "⚠️ Please provide a valid issue number and comment.",
-        });
-        return;
-      }
-
-      try {
-        const resolved = await findIssueByNumber(env, issueNum);
-        const { commentUrl } = await addIssueComment(
-          env,
-          resolved.owner,
-          resolved.repo,
-          resolved.number,
-          commentText,
-          authorName
-        );
-
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content:
-            `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
-            `> ${commentText.slice(0, 200)}\n\n` +
-            `🔗 <${commentUrl}>`,
-          components: buildControlActionRows(),
-        });
-
-        await logEvent(env, {
-          level: "SUCCESS",
-          event: "ISSUE_COMMENTED",
-          user: `@${authorName}`,
-          org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
-          message: `Commented on #${resolved.number}: "${commentText.slice(0, 60)}"`,
-        });
-      } catch (err) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: `❌ Error adding comment: ${sanitizeOutput(String(err))}`,
-          components: buildControlActionRows(),
-        });
-      }
-      return;
-    }
-
-    // Close Modal
-    if (customId === "modal_submit_close") {
-      const numRaw = getModalValue(components, "number").replace(/#/g, "");
-      const issueNum = parseInt(numRaw, 10);
-      const reason = getModalValue(components, "reason");
-
-      if (isNaN(issueNum)) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: "⚠️ Please provide a valid issue number.",
-        });
-        return;
-      }
-
-      try {
-        const resolved = await findIssueByNumber(env, issueNum);
-        const { issueUrl, title } = await closeGitHubIssue(
-          env,
-          resolved.owner,
-          resolved.repo,
-          resolved.number,
-          reason,
-          authorName
-        );
-
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content:
-            `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
-            `• **Title:** ${title}\n` +
-            `${reason ? `• **Reason:** ${reason}\n` : ""}` +
-            `• **Closed by:** <@${user?.id}>\n\n` +
-            `🔗 <${issueUrl}>`,
-          components: buildControlActionRows(),
-        });
-
-        await logEvent(env, {
-          level: "SUCCESS",
-          event: "ISSUE_CLOSED",
-          user: `@${authorName}`,
-          org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
-          message: `Closed #${resolved.number} ("${title}")`,
-          details: reason,
-        });
-      } catch (err) {
-        await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
-          content: `❌ Error closing issue: ${sanitizeOutput(String(err))}`,
-          components: buildControlActionRows(),
-        });
-      }
-      return;
-    }
+    await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+      content: replyContent,
+      components: buildControlActionRows(),
+    });
+  } catch (err) {
+    await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+      content: `❌ Error querying issues: ${sanitizeOutput(String(err))}`,
+      components: buildControlActionRows(),
+    });
   }
 }
 
-async function processMessage(env: Env, message: DiscordMessage): Promise<void> {
-  if (message.author?.bot) return;
+async function handleModalSubmit(
+  env: Env,
+  interaction: DiscordInteraction,
+  authorName: string
+): Promise<void> {
+  const customId = interaction.data?.custom_id || "";
+  const components = interaction.data?.components;
+  const user = interaction.user || interaction.member?.user;
 
-  let botUserId = env.BOT_USER_ID;
-  if (!botUserId) {
-    try {
-      const gw = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("global"));
-      const st = (await gw.fetch(new Request("https://internal/status")).then((r) => r.json())) as any;
-      botUserId = st.botUserId || undefined;
-    } catch {
-      // DO not ready
-    }
-  }
-
-  const intent = parseIssueCommand(message, botUserId);
-  if (!intent) return;
-
-  const authorName = message.author.global_name || message.author.username;
-
-  // 1. HELP COMMAND
-  if (intent.action === "help") {
-    await sendDiscordMessage(
-      env,
-      message.channel_id,
-      getHelpMessage(),
-      message.id,
-      buildControlActionRows()
-    );
+  // Anti-spam check
+  if (user && isRateLimited(user.id, 3, 60)) {
+    await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+      content: "⚠️ **Rate limit exceeded:** You can submit up to 3 issues per minute. Please try again shortly.",
+    });
     return;
   }
 
-  // 2. CLOSE COMMAND
-  if (intent.action === "close") {
+  // Create Issue
+  if (customId === "modal_submit_create") {
+    const orgInput = getModalValue(components, "org").toLowerCase();
+    const org: "pulsar" | "inled" = orgInput.includes("inled") ? "inled" : "pulsar";
+    const typeInput = getModalValue(components, "type").toLowerCase();
+    const type: "Error" | "Idea" =
+      typeInput.includes("idea") || typeInput.includes("suggestion") ? "Idea" : "Error";
+    const title = getModalValue(components, "title") || "Untitled issue";
+    const details = getModalValue(components, "details");
+    const body = `Reported via Discord Modal by @${authorName}\n\n${details || title}`;
+
     try {
-      const resolved = await findIssueByNumber(env, intent.issueNumber);
-      const { issueUrl, title } = await closeGitHubIssue(
-        env,
-        resolved.owner,
-        resolved.repo,
-        resolved.number,
-        intent.reason,
-        authorName
-      );
-
-      const replyContent =
-        `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
+      const res = await createProjectDraftIssue(env, org, title, body, type);
+      const typeEmoji = type === "Error" ? "🐛" : "💡";
+      const replyText =
+        `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
+        `• **Organization:** ${res.orgName}\n` +
+        `• **Type:** ${typeEmoji} **${type}**\n` +
         `• **Title:** ${title}\n` +
-        `${intent.reason ? `• **Reason:** ${intent.reason}\n` : ""}` +
-        `• **Closed by:** <@${message.author.id}>\n\n` +
-        `🔗 <${issueUrl}>`;
+        `• **Reported by:** <@${user?.id}>\n\n` +
+        `👉 **View on Project Board:** <${res.boardUrl}>`;
 
-      await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: replyText,
+        components: buildControlActionRows(),
+      });
 
       await logEvent(env, {
         level: "SUCCESS",
-        event: "ISSUE_CLOSED",
+        event: "MODAL_ISSUE_CREATED",
         user: `@${authorName}`,
-        org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
-        message: `Closed #${resolved.number}: "${title}"`,
-        details: intent.reason,
+        org: res.orgName as any,
+        message: `Created ${type} via Modal: "${title}"`,
       });
     } catch (err) {
-      const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(env, message.channel_id, `❌ Error closing issue: ${safeError}`, message.id);
-      await logEvent(env, {
-        level: "ERROR",
-        event: "CLOSE_FAILED",
-        user: `@${authorName}`,
-        org: "General",
-        message: `Failed to close issue #${intent.issueNumber}: ${safeError}`,
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: `❌ Error creating issue: ${sanitizeOutput(String(err))}`,
+        components: buildControlActionRows(),
       });
     }
     return;
   }
 
-  // 3. COMMENT COMMAND
-  if (intent.action === "comment") {
+  // Comment Modal
+  if (customId === "modal_submit_comment") {
+    const numRaw = getModalValue(components, "number").replace(/#/g, "");
+    const issueNum = parseInt(numRaw, 10);
+    const commentText = getModalValue(components, "comment");
+
+    if (isNaN(issueNum) || !commentText) {
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: "⚠️ Please provide a valid issue number and comment.",
+      });
+      return;
+    }
+
     try {
-      const resolved = await findIssueByNumber(env, intent.issueNumber);
+      const resolved = await findIssueByNumber(env, issueNum);
       const { commentUrl } = await addIssueComment(
         env,
         resolved.owner,
         resolved.repo,
         resolved.number,
-        intent.comment,
+        commentText,
         authorName
       );
 
-      const replyContent =
-        `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
-        `> ${intent.comment}\n\n` +
-        `🔗 <${commentUrl}>`;
-
-      await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content:
+          `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
+          `> ${commentText.slice(0, 200)}\n\n` +
+          `🔗 <${commentUrl}>`,
+        components: buildControlActionRows(),
+      });
 
       await logEvent(env, {
         level: "SUCCESS",
         event: "ISSUE_COMMENTED",
         user: `@${authorName}`,
         org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
-        message: `Commented on #${resolved.number}: "${intent.comment.slice(0, 60)}"`,
+        message: `Commented on #${resolved.number}: "${commentText.slice(0, 60)}"`,
       });
     } catch (err) {
-      const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(env, message.channel_id, `❌ Error adding comment: ${safeError}`, message.id);
-      await logEvent(env, {
-        level: "ERROR",
-        event: "COMMENT_FAILED",
-        user: `@${authorName}`,
-        org: "General",
-        message: `Failed to comment on #${intent.issueNumber}: ${safeError}`,
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: `❌ Error adding comment: ${sanitizeOutput(String(err))}`,
+        components: buildControlActionRows(),
       });
     }
     return;
   }
 
-  // 4. VIEW COMMAND
-  if (intent.action === "view") {
-    const orgLabel = intent.org === "pulsar" ? "Inled-Pulsar-OS" : "InledGroup";
-    await logEvent(env, {
-      level: "INFO",
-      event: "COMMAND_VIEW",
-      user: `@${authorName}`,
-      org: orgLabel,
-      message: `User requested to view issues on ${orgLabel}`,
-      details: intent.filterType ? `Filter: ${intent.filterType}` : "All open issues",
-    });
+  // Close Modal
+  if (customId === "modal_submit_close") {
+    const numRaw = getModalValue(components, "number").replace(/#/g, "");
+    const issueNum = parseInt(numRaw, 10);
+    const reason = getModalValue(components, "reason");
+
+    if (isNaN(issueNum)) {
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: "⚠️ Please provide a valid issue number.",
+      });
+      return;
+    }
 
     try {
-      const { items, boardUrl, orgName } = await fetchProjectIssues(env, intent.org, intent.filterType);
+      const resolved = await findIssueByNumber(env, issueNum);
+      const { issueUrl, title } = await closeGitHubIssue(
+        env,
+        resolved.owner,
+        resolved.repo,
+        resolved.number,
+        reason,
+        authorName
+      );
 
-      if (items.length === 0) {
-        await sendDiscordMessage(
-          env,
-          message.channel_id,
-          `ℹ️ No open issues found on **${orgName}** Project Board.\n\n🔗 **View Board:** ${boardUrl}`,
-          message.id,
-          buildControlActionRows()
-        );
-        return;
-      }
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content:
+          `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
+          `• **Title:** ${title}\n` +
+          `${reason ? `• **Reason:** ${reason}\n` : ""}` +
+          `• **Closed by:** <@${user?.id}>\n\n` +
+          `🔗 <${issueUrl}>`,
+        components: buildControlActionRows(),
+      });
 
-      const filterHeader = intent.filterType ? ` [${intent.filterType}]` : "";
+      await logEvent(env, {
+        level: "SUCCESS",
+        event: "ISSUE_CLOSED",
+        user: `@${authorName}`,
+        org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
+        message: `Closed #${resolved.number} ("${title}")`,
+        details: reason,
+      });
+    } catch (err) {
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: `❌ Error closing issue: ${sanitizeOutput(String(err))}`,
+        components: buildControlActionRows(),
+      });
+    }
+    return;
+  }
+}
+
+async function handleSlashCommand(
+  env: Env,
+  interaction: DiscordInteraction,
+  subcommand: string,
+  options: Array<{ name: string; value?: any }>
+): Promise<void> {
+  const getOpt = (name: string) => options.find((o) => o.name === name)?.value;
+  const user = interaction.user || interaction.member?.user;
+  const authorName = user?.global_name || user?.username || "DiscordUser";
+
+  try {
+    if (subcommand === "view") {
+      const org = (getOpt("org") || "pulsar") as "pulsar" | "inled";
+      const rawType = getOpt("type");
+      const filterType = rawType === "all" ? undefined : rawType;
+
+      const { items, boardUrl, orgName } = await fetchProjectIssues(env, org, filterType);
+      const filterHeader = filterType ? ` [${filterType}]` : "";
       const lines = items.map((it, idx) => {
         const numStr = it.number ? `[#${it.number}] ` : "";
         const icon = it.type === "Error" ? "🐛" : it.type === "Idea" ? "💡" : it.type === "Ayuda" ? "🤝" : "📌";
@@ -508,138 +468,120 @@ async function processMessage(env: Env, message: DiscordMessage): Promise<void> 
         return `${idx + 1}. ${typeStr}${numStr}**${it.title}**\n   🔗 <${it.url}>`;
       });
 
-      const replyContent = `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
+      const replyContent =
+        lines.length === 0
+          ? `ℹ️ No open issues found on **${orgName}**${filterHeader}.\n\n👉 **Full Project Board:** <${boardUrl}>`
+          : `📋 **${orgName} — Open Issues${filterHeader} (${items.length}):**\n\n${lines.join("\n\n")}\n\n👉 **Full Project Board:** <${boardUrl}>`;
 
-      await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
-
-      await logEvent(env, {
-        level: "SUCCESS",
-        event: "ISSUES_VIEWED",
-        user: `@${authorName}`,
-        org: orgLabel,
-        message: `Displayed ${items.length} issues to @${authorName}`,
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: replyContent,
+        components: buildControlActionRows(),
       });
-    } catch (err) {
-      console.error("Error viewing issues:", err);
-      const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(
-        env,
-        message.channel_id,
-        `❌ Error querying GitHub Project Board: ${safeError}`,
-        message.id,
-        buildControlActionRows()
-      );
-      await logEvent(env, {
-        level: "ERROR",
-        event: "VIEW_FAILED",
-        user: `@${authorName}`,
-        org: orgLabel,
-        message: `Failed to fetch issues: ${safeError}`,
-      });
-    }
-    return;
-  }
-
-  // 5. CREATE COMMAND
-  if (intent.action === "create") {
-    const orgLabel = intent.org === "pulsar" ? "Inled-Pulsar-OS" : "InledGroup";
-
-    if (isRateLimited(message.author.id, 3, 60)) {
-      await sendDiscordMessage(
-        env,
-        message.channel_id,
-        `⚠️ Please wait a moment before creating more issues (maximum 3 per minute).`,
-        message.id
-      );
       return;
     }
 
-    await logEvent(env, {
-      level: "INFO",
-      event: "COMMAND_CREATE",
-      user: `@${authorName}`,
-      org: orgLabel,
-      message: `Creating ${intent.type} on ${orgLabel}: "${intent.title}"`,
-    });
+    if (subcommand === "create") {
+      const title = String(getOpt("title") || "").trim();
+      const org = (getOpt("org") || "pulsar") as "pulsar" | "inled";
+      const type = (getOpt("type") === "idea" ? "Idea" : "Error") as "Error" | "Idea";
+      const details = getOpt("details");
+      const body = `Reported via Discord Slash Command by @${authorName}\n\n${details || title}`;
 
-    try {
-      const result = await createProjectDraftIssue(
-        env,
-        intent.org,
-        intent.title,
-        intent.body,
-        intent.type
-      );
+      const res = await createProjectDraftIssue(env, org, title, body, type);
+      const typeEmoji = type === "Error" ? "🐛" : "💡";
+      const replyText =
+        `✅ **Issue successfully created on GitHub Project Board!**\n\n` +
+        `• **Organization:** ${res.orgName}\n` +
+        `• **Type:** ${typeEmoji} **${type}**\n` +
+        `• **Title:** ${title}\n` +
+        `• **Reported by:** <@${user?.id}>\n\n` +
+        `👉 **View on Project Board:** <${res.boardUrl}>`;
 
-      const typeEmoji = intent.type === "Error" ? "🐛" : "💡";
-      const replyContent =
-        `✅ **Issue successfully added to GitHub Project Board!**\n\n` +
-        `• **Organization:** ${result.orgName}\n` +
-        `• **Type:** ${typeEmoji} **${intent.type}**\n` +
-        `• **Title:** ${intent.title}\n` +
-        `• **Reported by:** <@${message.author.id}>\n\n` +
-        `👉 **View on Project Board:** <${result.boardUrl}>`;
-
-      await sendDiscordMessage(env, message.channel_id, replyContent, message.id, buildControlActionRows());
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content: replyText,
+        components: buildControlActionRows(),
+      });
 
       await logEvent(env, {
         level: "SUCCESS",
-        event: "ISSUE_CREATED",
+        event: "COMMAND_ISSUE_CREATED",
         user: `@${authorName}`,
-        org: orgLabel,
-        message: `Added to ${result.orgName} (ID: ${result.itemId})`,
-        details: intent.title,
+        org: res.orgName as any,
+        message: `Created ${type}: "${title}"`,
       });
-    } catch (err) {
-      console.error("Error creating project issue:", err);
-      const safeError = sanitizeOutput(String(err));
-      await sendDiscordMessage(
-        env,
-        message.channel_id,
-        `❌ Error adding issue to GitHub Project Board: ${safeError}`,
-        message.id,
-        buildControlActionRows()
-      );
-      await logEvent(env, {
-        level: "ERROR",
-        event: "CREATE_FAILED",
-        user: `@${authorName}`,
-        org: orgLabel,
-        message: `Failed to create issue: ${safeError}`,
-      });
+      return;
     }
+
+    if (subcommand === "comment") {
+      const issueNum = parseInt(String(getOpt("number")), 10);
+      const commentText = String(getOpt("message") || "").trim();
+
+      const resolved = await findIssueByNumber(env, issueNum);
+      const { commentUrl } = await addIssueComment(
+        env,
+        resolved.owner,
+        resolved.repo,
+        resolved.number,
+        commentText,
+        authorName
+      );
+
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content:
+          `💬 **Comment successfully added to #${resolved.number}!**\n\n` +
+          `> ${commentText.slice(0, 200)}\n\n` +
+          `🔗 <${commentUrl}>`,
+        components: buildControlActionRows(),
+      });
+
+      await logEvent(env, {
+        level: "SUCCESS",
+        event: "ISSUE_COMMENTED",
+        user: `@${authorName}`,
+        org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
+        message: `Commented on #${resolved.number}`,
+      });
+      return;
+    }
+
+    if (subcommand === "close") {
+      const issueNum = parseInt(String(getOpt("number")), 10);
+      const reason = getOpt("reason") ? String(getOpt("reason")) : undefined;
+
+      const resolved = await findIssueByNumber(env, issueNum);
+      const { issueUrl, title } = await closeGitHubIssue(
+        env,
+        resolved.owner,
+        resolved.repo,
+        resolved.number,
+        reason,
+        authorName
+      );
+
+      await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+        content:
+          `🔒 **Issue #${resolved.number} successfully closed on GitHub!**\n\n` +
+          `• **Title:** ${title}\n` +
+          `${reason ? `• **Reason:** ${reason}\n` : ""}` +
+          `• **Closed by:** <@${user?.id}>\n\n` +
+          `🔗 <${issueUrl}>`,
+        components: buildControlActionRows(),
+      });
+
+      await logEvent(env, {
+        level: "SUCCESS",
+        event: "ISSUE_CLOSED",
+        user: `@${authorName}`,
+        org: resolved.owner === "InledGroup" ? "InledGroup" : "Inled-Pulsar-OS",
+        message: `Closed #${resolved.number}: "${title}"`,
+        details: reason,
+      });
+      return;
+    }
+  } catch (err) {
+    await editOriginalInteractionResponse(interaction.application_id, interaction.token, {
+      content: `❌ Error processing command: ${sanitizeOutput(String(err))}`,
+      components: buildControlActionRows(),
+    });
   }
-}
-
-async function handleStatus(env: Env): Promise<Response> {
-  let gateway = { connected: false, lastDispatch: null, botUsername: null, botUserId: null };
-  try {
-    const gw = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("global"));
-    const live = (await gw.fetch(new Request("https://internal/status")).then((r) => r.json())) as any;
-    gateway = live;
-  } catch {
-    // DO not ready
-  }
-  return Response.json({ gateway });
-}
-
-async function handleConnect(env: Env, url: URL): Promise<Response> {
-  const stub = env.DISCORD_GATEWAY.get(env.DISCORD_GATEWAY.idFromName("global"));
-  const webhookUrl = `${url.origin}/discord/events`;
-  await stub.fetch(
-    new Request("https://internal/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ webhookUrl }),
-    })
-  );
-
-  await logEvent(env, {
-    level: "INFO",
-    event: "GATEWAY_RECONNECTED",
-    org: "General",
-    message: "Discord Gateway connection initiated via dashboard",
-  });
-
-  return Response.json({ ok: true });
 }

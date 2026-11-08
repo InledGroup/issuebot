@@ -440,3 +440,192 @@ export function parseIssueCommand(
 
   return { action: "help" };
 }
+
+/**
+ * Registers Slash Commands with Discord REST API globally
+ */
+export async function registerSlashCommands(env: Env): Promise<{ ok: boolean; count: number; commands: string[] }> {
+  // 1. Get Application ID
+  const meRes = await fetch(`${DISCORD_API}/oauth2/applications/@me`, {
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+    },
+  });
+
+  if (!meRes.ok) {
+    const err = await meRes.text();
+    throw new Error(`Failed to get Discord application ID: ${meRes.status} ${err}`);
+  }
+
+  const meData = (await meRes.json()) as { id: string };
+  const appId = meData.id;
+
+  const commandsPayload = [
+    {
+      name: "issue",
+      description: "GitHub Project Board Issue Manager",
+      options: [
+        {
+          name: "help",
+          description: "Display interactive issue board buttons and guide",
+          type: 1, // SUB_COMMAND
+        },
+        {
+          name: "view",
+          description: "View open issues on GitHub Project Boards",
+          type: 1,
+          options: [
+            {
+              name: "org",
+              description: "Organization board to view",
+              type: 3, // STRING
+              required: false,
+              choices: [
+                { name: "Inled-Pulsar-OS", value: "pulsar" },
+                { name: "InledGroup", value: "inled" },
+              ],
+            },
+            {
+              name: "type",
+              description: "Filter by issue type",
+              type: 3,
+              required: false,
+              choices: [
+                { name: "All Types", value: "all" },
+                { name: "Errors Only", value: "Error" },
+                { name: "Ideas / Suggestions", value: "Idea" },
+                { name: "Help Tasks", value: "Ayuda" },
+              ],
+            },
+          ],
+        },
+        {
+          name: "create",
+          description: "Create a new issue on GitHub Project Board",
+          type: 1,
+          options: [
+            {
+              name: "title",
+              description: "Title of the issue or feature request",
+              type: 3,
+              required: true,
+            },
+            {
+              name: "org",
+              description: "Organization board",
+              type: 3,
+              required: true,
+              choices: [
+                { name: "Inled-Pulsar-OS", value: "pulsar" },
+                { name: "InledGroup", value: "inled" },
+              ],
+            },
+            {
+              name: "type",
+              description: "Type of issue",
+              type: 3,
+              required: true,
+              choices: [
+                { name: "Error / Bug", value: "error" },
+                { name: "Idea / Proposal", value: "idea" },
+              ],
+            },
+            {
+              name: "details",
+              description: "Detailed description or reproduction steps",
+              type: 3,
+              required: false,
+            },
+          ],
+        },
+        {
+          name: "comment",
+          description: "Post a comment to an existing GitHub issue",
+          type: 1,
+          options: [
+            {
+              name: "number",
+              description: "GitHub Issue number (e.g. 223)",
+              type: 4, // INTEGER
+              required: true,
+            },
+            {
+              name: "message",
+              description: "Comment text to post on the issue",
+              type: 3,
+              required: true,
+            },
+            {
+              name: "org",
+              description: "Organization board (default: pulsar)",
+              type: 3,
+              required: false,
+              choices: [
+                { name: "Inled-Pulsar-OS", value: "pulsar" },
+                { name: "InledGroup", value: "inled" },
+              ],
+            },
+          ],
+        },
+        {
+          name: "close",
+          description: "Close an issue on GitHub Project Board",
+          type: 1,
+          options: [
+            {
+              name: "number",
+              description: "GitHub Issue number to close (e.g. 223)",
+              type: 4,
+              required: true,
+            },
+            {
+              name: "reason",
+              description: "Optional closing note or resolution reason",
+              type: 3,
+              required: false,
+            },
+            {
+              name: "org",
+              description: "Organization board (default: pulsar)",
+              type: 3,
+              required: false,
+              choices: [
+                { name: "Inled-Pulsar-OS", value: "pulsar" },
+                { name: "InledGroup", value: "inled" },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      name: "help",
+      description: "Show IssueBot interactive dashboard and action buttons",
+    },
+    {
+      name: "panel",
+      description: "Post the interactive IssueBot control panel in this channel",
+    },
+  ];
+
+  const putRes = await fetch(`${DISCORD_API}/applications/${appId}/commands`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(commandsPayload),
+  });
+
+  if (!putRes.ok) {
+    const err = await putRes.text();
+    throw new Error(`Failed to register slash commands: ${putRes.status} ${err}`);
+  }
+
+  const created = (await putRes.json()) as Array<{ name: string }>;
+  return {
+    ok: true,
+    count: created.length,
+    commands: created.map((c) => `/${c.name}`),
+  };
+}

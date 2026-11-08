@@ -63,13 +63,46 @@ const DASHBOARD_HTML = `<!doctype html>
     border-radius: 999px;
     font-weight: 700;
   }
+  .badge-free {
+    font-size: 0.75rem;
+    background: #dcfce7;
+    color: #15803d;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+  }
   p.sub { color: var(--text-muted); font-size: 0.95rem; margin-top: 4px; }
 
   .header-actions {
     display: flex;
     gap: 10px;
     align-items: center;
+    flex-wrap: wrap;
   }
+  button {
+    background: var(--btn-primary);
+    color: #ffffff;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  button:hover { background: var(--btn-primary-hover); }
+  button.secondary {
+    background: #ffffff;
+    color: var(--text-main);
+    border: 1px solid var(--card-border);
+  }
+  button.secondary:hover { background: #f1f5f9; }
+  button.danger {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+  button.danger:hover { background: #fca5a5; }
 
   .grid {
     display: grid;
@@ -100,9 +133,42 @@ const DASHBOARD_HTML = `<!doctype html>
   }
   .dot-status { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
   .green { background: var(--green); box-shadow: 0 0 8px rgba(34, 197, 94, 0.4); }
-  .red { background: var(--red); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
-  .value { font-size: 1.25rem; font-weight: 800; margin-top: 4px; }
+  .value { font-size: 1.15rem; font-weight: 800; margin-top: 4px; }
   .time { color: var(--text-muted); font-size: .85rem; margin-top: 6px; }
+
+  .panel-box {
+    background: #f1f5f9;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .panel-box-info h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .panel-box-info p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  .panel-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .panel-form input {
+    padding: 8px 12px;
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    min-width: 220px;
+  }
 
   .links-bar {
     display: flex;
@@ -149,93 +215,63 @@ const DASHBOARD_HTML = `<!doctype html>
   .filter-bar {
     display: flex;
     gap: 8px;
-    align-items: center;
   }
   .filter-btn {
-    background: transparent;
-    border: 1px solid var(--card-border);
-    padding: 6px 12px;
+    padding: 6px 14px;
     border-radius: 6px;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
+    border: 1px solid var(--card-border);
+    background: #ffffff;
     color: var(--text-muted);
   }
   .filter-btn.active {
     background: var(--btn-primary);
-    color: #fff;
+    color: #ffffff;
     border-color: var(--btn-primary);
   }
 
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.88rem;
+    margin-top: 8px;
+    font-size: 0.9rem;
   }
   th {
     text-align: left;
     padding: 10px 12px;
-    color: var(--text-muted);
-    border-bottom: 1.5px solid var(--card-border);
-    font-weight: 700;
+    border-bottom: 1px solid var(--card-border);
     font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
   }
   td {
     padding: 12px;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--card-border);
     vertical-align: top;
   }
-  
+  tr:last-child td { border-bottom: none; }
+
   .badge-level {
+    font-size: 0.7rem;
+    font-weight: 700;
     padding: 2px 8px;
     border-radius: 6px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    display: inline-block;
     text-transform: uppercase;
   }
-  .badge-SUCCESS { background: #dcfce7; color: #166534; }
   .badge-INFO { background: #e0f2fe; color: #0369a1; }
-  .badge-ERROR { background: #fee2e2; color: #991b1b; }
-  .badge-WARN { background: #fef3c7; color: #92400e; }
+  .badge-SUCCESS { background: #dcfce7; color: #15803d; }
+  .badge-WARN { background: #fef3c7; color: #b45309; }
+  .badge-ERROR { background: #fee2e2; color: #b91c1c; }
 
-  button {
-    background: var(--btn-primary);
-    color: #fff;
-    border: 0;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    font-size: 0.88rem;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    transition: background 0.15s ease;
-  }
-  button:hover { background: var(--btn-primary-hover); }
-  button.secondary {
-    background: #ffffff;
-    color: #334155;
-    border: 1px solid var(--card-border);
-  }
-  button.secondary:hover { background: #f8fafc; }
-  button.danger {
-    background: #fef2f2;
-    color: #dc2626;
-    border: 1px solid #fecaca;
-  }
-  button.danger:hover { background: #fee2e2; }
-
-  #status-line { color: var(--text-muted); font-size: .85rem; margin-top: 16px; }
   .toast {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    background: #0f172a;
-    color: #fff;
+    background: #1e293b;
+    color: #ffffff;
     padding: 12px 20px;
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.15);
@@ -251,31 +287,43 @@ const DASHBOARD_HTML = `<!doctype html>
     <div>
       <div class="brand">
         <img src="https://hosted.inled.es/cdn/inled-logo-full.png" alt="INLED" />
-        <span class="badge">IssueBot v1.0</span>
+        <span class="badge">IssueBot v2.0</span>
+        <span class="badge-free">100% Free (0 DO)</span>
       </div>
-      <p class="sub">Discord Bot for GitHub Project Boards synchronization</p>
+      <p class="sub">Stateless Discord Interactions bot for GitHub Project Boards</p>
     </div>
     <div class="header-actions">
-      <button id="btn-reconnect" class="secondary">🔄 Reconnect Gateway</button>
+      <button id="btn-register" class="secondary">⚡ Register Slash Commands (/issue, /help)</button>
       <button id="btn-clear" class="danger">Clear Logs</button>
     </div>
   </header>
 
   <div class="grid">
-    <div class="card" id="gateway-card">
-      <h2>Discord Gateway</h2>
-      <div class="pill"><span class="dot-status red" id="gw-dot"></span><span id="gw-text">disconnected</span></div>
-      <div class="time" id="gateway-last">—</div>
+    <div class="card">
+      <h2>Bot Architecture</h2>
+      <div class="pill"><span class="dot-status green"></span><span>Discord Webhooks</span></div>
+      <div class="time">0 Durable Objects • 0 Storage Writes</div>
     </div>
     <div class="card">
-      <h2>Bot Identity</h2>
-      <div class="value" id="bot-username">—</div>
-      <div class="time" id="bot-id">ID: —</div>
+      <h2>Uptime & Quotas</h2>
+      <div class="value" style="color: var(--green);">100% Always Online</div>
+      <div class="time">Standard Worker (100k req/day free)</div>
     </div>
     <div class="card">
-      <h2>Total Events</h2>
+      <h2>Recent Events</h2>
       <div class="value" id="logs-count">0</div>
-      <div class="time">records in memory</div>
+      <div class="time">in memory buffer</div>
+    </div>
+  </div>
+
+  <div class="panel-box">
+    <div class="panel-box-info">
+      <h3>📢 Post Interactive Control Panel to Discord</h3>
+      <p>Send the interactive buttons panel (➕ New Issue, 💬 Comment, 🔒 Close Issue, Filter buttons) to any Discord channel.</p>
+    </div>
+    <div class="panel-form">
+      <input type="text" id="channel-id-input" placeholder="Discord Channel ID" />
+      <button id="btn-post-panel">Post Panel</button>
     </div>
   </div>
 
@@ -314,8 +362,6 @@ const DASHBOARD_HTML = `<!doctype html>
         <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading logs...</td></tr>
       </tbody>
     </table>
-
-    <div id="status-line">Updating in real-time every 3 seconds...</div>
   </div>
 </main>
 
@@ -341,26 +387,6 @@ function fmtTime(iso) {
   }
 }
 
-async function refreshStatus() {
-  try {
-    const res = await fetch('/api/status');
-    const s = await res.json();
-    const g = s.gateway || { connected: false };
-
-    const gwDot = document.getElementById('gw-dot');
-    const gwText = document.getElementById('gw-text');
-    gwDot.className = 'dot-status ' + (g.connected ? 'green' : 'red');
-    gwText.textContent = g.connected ? 'connected' : 'disconnected';
-
-    document.getElementById('gateway-last').textContent =
-      g.lastDispatch ? 'Last dispatch: ' + fmtTime(g.lastDispatch) : 'No recent events';
-    document.getElementById('bot-username').textContent = g.botUsername ? '@' + g.botUsername : 'Not connected';
-    document.getElementById('bot-id').textContent = g.botUserId ? 'ID: ' + g.botUserId : 'ID: —';
-  } catch (err) {
-    console.error('Error status:', err);
-  }
-}
-
 async function loadLogs() {
   try {
     const res = await fetch('/api/logs');
@@ -380,7 +406,7 @@ function renderLogs() {
   });
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No events recorded yet. Invoke the bot on Discord.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No events recorded yet. Click a button or run a slash command in Discord.</td></tr>';
     return;
   }
 
@@ -414,27 +440,52 @@ document.getElementById('btn-clear').onclick = async () => {
   loadLogs();
 };
 
-document.getElementById('btn-reconnect').onclick = async () => {
-  await fetch('/api/connect', { method: 'POST' });
-  showToast('Reconnecting Gateway...');
-  setTimeout(refreshStatus, 2500);
+document.getElementById('btn-register').onclick = async () => {
+  showToast('Registering Slash Commands with Discord...');
+  try {
+    const res = await fetch('/api/register-commands', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ Registered ' + data.count + ' slash commands: ' + data.commands.join(', '));
+    } else {
+      showToast('❌ Error: ' + (data.error || 'Failed'));
+    }
+  } catch (err) {
+    showToast('❌ Error: ' + err);
+  }
 };
 
-refreshStatus();
+document.getElementById('btn-post-panel').onclick = async () => {
+  const channelId = document.getElementById('channel-id-input').value.trim();
+  if (!channelId) {
+    showToast('⚠️ Please enter a Discord Channel ID');
+    return;
+  }
+  showToast('Posting panel to Discord...');
+  try {
+    const res = await fetch('/api/post-panel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel_id: channelId }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ Panel successfully posted to channel ' + channelId);
+      document.getElementById('channel-id-input').value = '';
+    } else {
+      showToast('❌ Error: ' + (data.error || 'Failed'));
+    }
+  } catch (err) {
+    showToast('❌ Error: ' + err);
+  }
+};
+
 loadLogs();
 setInterval(() => {
   if (document.visibilityState === 'visible') {
-    refreshStatus();
     loadLogs();
   }
 }, 30000);
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    refreshStatus();
-    loadLogs();
-  }
-});
 </script>
 </body>
 </html>
